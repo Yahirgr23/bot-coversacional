@@ -1,0 +1,24 @@
+# Node modules
+node_modules/
+
+# Entornos y claves de seguridad
+.env
+.env.*
+!.env.example
+
+# Base de datos local (¡MUY IMPORTANTE NO SUBIRLA!)
+*.sqlite
+*.db
+
+# Logs y dependencias de sistema
+logs
+*.log
+npm-debug.log*
+
+# Builds de frontend
+frontend/dist/
+frontend/build/
+
+# Sistema Operativo
+.DS_Store
+Thumbs.db

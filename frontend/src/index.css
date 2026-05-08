@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --color-barber-gold: #d4af37;
+  --color-barber-dark: #121212;
+  --color-barber-gray: #1e1e1e;
+}
+
+body {
+  background-color: var(--color-barber-dark);
+  color: white;
+}

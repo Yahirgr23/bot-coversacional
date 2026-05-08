@@ -1,0 +1,5 @@
+node_modules/
+.env
+barberia.sqlite
+*.log
+.DS_Store
