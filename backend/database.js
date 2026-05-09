@@ -1,108 +1,107 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { Pool } = require('pg');
 
-const dbPath = path.resolve(__dirname, 'barberia.sqlite');
-const db = new sqlite3.Database(dbPath);
-
-db.serialize(() => {
-  // Tabla Barberos
-  db.run(`CREATE TABLE IF NOT EXISTS barberos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT NOT NULL,
-    activo INTEGER DEFAULT 1,
-    telefono TEXT
-  )`, () => {
-    // Añadimos la columna telefono si no existe
-    db.run("ALTER TABLE barberos ADD COLUMN telefono TEXT", () => { });
-  });
-
-  // Tabla Usuarios (Login y Roles)
-  db.run(`CREATE TABLE IF NOT EXISTS usuarios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    usuario TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    rol TEXT NOT NULL, -- 'admin' o 'barbero'
-    barbero_id INTEGER,
-    FOREIGN KEY(barbero_id) REFERENCES barberos(id)
-  )`);
-
-  // Tabla Servicios
-  db.run(`CREATE TABLE IF NOT EXISTS servicios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT NOT NULL,
-    precio REAL NOT NULL,
-    duracion_min INTEGER NOT NULL
-  )`);
-
-  // Tabla Citas
-  db.run(`CREATE TABLE IF NOT EXISTS citas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cliente_nombre TEXT NOT NULL,
-    cliente_telefono TEXT NOT NULL,
-    fecha_hora TEXT NOT NULL, -- ISO String
-    barbero_id INTEGER,
-    servicio TEXT NOT NULL,
-    status TEXT DEFAULT 'pendiente', -- pendiente, completada, cancelada
-    FOREIGN KEY(barbero_id) REFERENCES barberos(id)
-  )`, () => {
-    // Añadimos las nuevas columnas si no existen (ignorando el error si ya existen)
-    db.run("ALTER TABLE citas ADD COLUMN comprobante_id TEXT", () => { });
-    db.run("ALTER TABLE citas ADD COLUMN anticipo_pagado REAL", () => { });
-    db.run("ALTER TABLE citas ADD COLUMN duracion_total INTEGER DEFAULT 60", () => { });
-  });
-
-  // Seed data
-  db.get("SELECT COUNT(*) as count FROM barberos", (err, row) => {
-    if (row.count === 0) {
-      const stmt = db.prepare("INSERT INTO barberos (nombre, telefono) VALUES (?, ?)");
-      stmt.run("YAHIR GAMBOA ROSAS", "522291056547");
-      stmt.run("ISABEL ROSAS GARCIA", "522297783905");
-      stmt.run("REGINA ROSAS GARCIA", "522296524053", () => {
-        // Al terminar de crear los barberos, creamos los usuarios
-        db.get("SELECT COUNT(*) as ucount FROM usuarios", (err, urow) => {
-          if (urow.ucount === 0) {
-             const ustmt = db.prepare("INSERT INTO usuarios (usuario, password, rol, barbero_id) VALUES (?, ?, ?, ?)");
-             // Admin (Dueña) - Puede ver todo
-             ustmt.run("isabeladmin", "12345", "admin", 2); 
-             // Barberos (Solo ven lo suyo)
-             ustmt.run("yahir", "1234", "barbero", 1);
-             ustmt.run("isabel", "1234", "barbero", 2);
-             ustmt.run("regina", "1234", "barbero", 3);
-             ustmt.finalize();
-             console.log("Usuarios iniciales creados.");
-          }
-        });
-      });
-      stmt.finalize();
-      console.log("Barberos insertados con teléfonos.");
-    } else {
-      // Si los barberos ya existen, nos aseguramos de crear los usuarios si no existen
-      db.get("SELECT COUNT(*) as ucount FROM usuarios", (err, urow) => {
-        if (urow && urow.ucount === 0) {
-           const ustmt = db.prepare("INSERT INTO usuarios (usuario, password, rol, barbero_id) VALUES (?, ?, ?, ?)");
-           ustmt.run("isabeladmin", "12345", "admin", 2); 
-           ustmt.run("yahir", "1234", "barbero", 1);
-           ustmt.run("isabel", "1234", "barbero", 2);
-           ustmt.run("regina", "1234", "barbero", 3);
-           ustmt.finalize();
-           console.log("Usuarios iniciales creados en base existente.");
-        }
-      });
-    }
-  });
-
-  db.get("SELECT COUNT(*) as count FROM servicios", (err, row) => {
-    if (row.count === 0) {
-      const stmt = db.prepare("INSERT INTO servicios (nombre, precio, duracion_min) VALUES (?, ?, ?)");
-      stmt.run("Arreglo de ceja", 40, 15);
-      stmt.run("Barba sola", 100, 30);
-      stmt.run("Barba y corte", 200, 60);
-      stmt.run("Corte de dama", 140, 45);
-      stmt.run("Alisado xpress (Precio base)", 250, 90);
-      stmt.finalize();
-      console.log("Servicios insertados.");
-    }
-  });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
-module.exports = db;
+async function initDB() {
+  const client = await pool.connect();
+  try {
+    // Tabla Barberos
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS barberos (
+        id SERIAL PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        activo INTEGER DEFAULT 1,
+        telefono TEXT
+      )
+    `);
+
+    // Tabla Usuarios (Login y Roles)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY,
+        usuario TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        rol TEXT NOT NULL,
+        barbero_id INTEGER REFERENCES barberos(id)
+      )
+    `);
+
+    // Tabla Servicios
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS servicios (
+        id SERIAL PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        precio REAL NOT NULL,
+        duracion_min INTEGER NOT NULL
+      )
+    `);
+
+    // Tabla Citas
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS citas (
+        id SERIAL PRIMARY KEY,
+        cliente_nombre TEXT NOT NULL,
+        cliente_telefono TEXT NOT NULL,
+        fecha_hora TEXT NOT NULL,
+        barbero_id INTEGER REFERENCES barberos(id),
+        servicio TEXT NOT NULL,
+        status TEXT DEFAULT 'pendiente',
+        comprobante_id TEXT,
+        anticipo_pagado REAL,
+        duracion_total INTEGER DEFAULT 60
+      )
+    `);
+
+    // Seed Barberos
+    const { rows: barberoRows } = await client.query('SELECT COUNT(*) as count FROM barberos');
+    if (parseInt(barberoRows[0].count) === 0) {
+      await client.query(`
+        INSERT INTO barberos (nombre, telefono) VALUES
+        ('YAHIR GAMBOA ROSAS', '522291056547'),
+        ('ISABEL ROSAS GARCIA', '522297783905'),
+        ('REGINA ROSAS GARCIA', '522296524053')
+      `);
+      console.log('Barberos insertados.');
+    }
+
+    // Seed Usuarios
+    const { rows: userRows } = await client.query('SELECT COUNT(*) as count FROM usuarios');
+    if (parseInt(userRows[0].count) === 0) {
+      await client.query(`
+        INSERT INTO usuarios (usuario, password, rol, barbero_id) VALUES
+        ('isabeladmin', '12345', 'admin', 2),
+        ('yahir', '1234', 'barbero', 1),
+        ('isabel', '1234', 'barbero', 2),
+        ('regina', '1234', 'barbero', 3)
+      `);
+      console.log('Usuarios iniciales creados.');
+    }
+
+    // Seed Servicios
+    const { rows: servicioRows } = await client.query('SELECT COUNT(*) as count FROM servicios');
+    if (parseInt(servicioRows[0].count) === 0) {
+      await client.query(`
+        INSERT INTO servicios (nombre, precio, duracion_min) VALUES
+        ('Arreglo de ceja', 40, 15),
+        ('Barba sola', 100, 30),
+        ('Barba y corte', 200, 60),
+        ('Corte de dama', 140, 45),
+        ('Alisado xpress (Precio base)', 250, 90)
+      `);
+      console.log('Servicios insertados.');
+    }
+
+    console.log('Base de datos PostgreSQL inicializada correctamente.');
+  } catch (err) {
+    console.error('Error al inicializar la base de datos:', err.message);
+  } finally {
+    client.release();
+  }
+}
+
+initDB();
+
+module.exports = pool;

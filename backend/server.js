@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const db = require('./database');
+const db = require('./database'); // Pool de pg
 const { processMessage } = require('./bot');
 
 const app = express();
@@ -13,51 +13,61 @@ app.use(express.json());
 // RUTAS API FRONTEND (ADMIN)
 // ==========================================
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { usuario, password } = req.body;
-  db.get("SELECT id, usuario, rol, barbero_id FROM usuarios WHERE usuario = ? AND password = ?", [usuario, password], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(401).json({ error: "Credenciales incorrectas" });
-    res.json({ success: true, user: row });
-  });
-});
-
-app.get('/api/citas', (req, res) => {
-  const { barbero_id } = req.query;
-  
-  let query = `
-    SELECT c.id, c.cliente_nombre, c.cliente_telefono, c.fecha_hora, c.servicio, c.status, b.nombre as barbero, c.comprobante_id, c.anticipo_pagado
-    FROM citas c
-    LEFT JOIN barberos b ON c.barbero_id = b.id
-  `;
-  const params = [];
-  
-  if (barbero_id) {
-    query += ` WHERE c.barbero_id = ? `;
-    params.push(barbero_id);
+  try {
+    const { rows } = await db.query(
+      "SELECT id, usuario, rol, barbero_id FROM usuarios WHERE usuario = $1 AND password = $2",
+      [usuario, password]
+    );
+    if (rows.length === 0) return res.status(401).json({ error: "Credenciales incorrectas" });
+    res.json({ success: true, user: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  
-  query += ` ORDER BY c.fecha_hora DESC`;
-
-  db.all(query, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
 });
 
-app.patch('/api/citas/:id/status', (req, res) => {
+app.get('/api/citas', async (req, res) => {
+  const { barbero_id } = req.query;
+  try {
+    let query = `
+      SELECT c.id, c.cliente_nombre, c.cliente_telefono, c.fecha_hora, c.servicio, c.status,
+             b.nombre as barbero, c.comprobante_id, c.anticipo_pagado
+      FROM citas c
+      LEFT JOIN barberos b ON c.barbero_id = b.id
+    `;
+    const params = [];
+    if (barbero_id) {
+      query += ` WHERE c.barbero_id = $1`;
+      params.push(barbero_id);
+    }
+    query += ` ORDER BY c.fecha_hora DESC`;
+
+    const { rows } = await db.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/citas/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
-  db.run("UPDATE citas SET status = ? WHERE id = ?", [status, id], function(err) {
-    if (err) return res.status(500).json({ error: err.message });
+  try {
+    await db.query("UPDATE citas SET status = $1 WHERE id = $2", [status, id]);
     res.json({ success: true });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/barberos', (req, res) => {
-  db.all("SELECT * FROM barberos", [], (err, rows) => {
-    res.json(rows || []);
-  });
+app.get('/api/barberos', async (req, res) => {
+  try {
+    const { rows } = await db.query("SELECT * FROM barberos");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==========================================
@@ -83,11 +93,18 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', async (req, res) => {
   const body = req.body;
   if (body.object) {
-    if (body.entry && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value.messages && body.entry[0].changes[0].value.messages[0]) {
+    if (
+      body.entry &&
+      body.entry[0].changes &&
+      body.entry[0].changes[0] &&
+      body.entry[0].changes[0].value.messages &&
+      body.entry[0].changes[0].value.messages[0]
+    ) {
       const msg = body.entry[0].changes[0].value.messages[0];
       const phone = msg.from;
       let text = "";
       let imageData = null;
+
       if (msg.type === "text") {
         text = msg.text.body;
       } else if (msg.type === "image") {
@@ -98,12 +115,10 @@ app.post('/webhook', async (req, res) => {
             headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
           });
           const downloadUrl = urlRes.data.url;
-          
           const imageRes = await axios.get(downloadUrl, {
             responseType: 'arraybuffer',
             headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
           });
-          
           imageData = {
             buffer: Buffer.from(imageRes.data),
             mimeType: msg.image.mime_type
@@ -112,28 +127,25 @@ app.post('/webhook', async (req, res) => {
           console.error("Error descargando imagen de WhatsApp:", err);
         }
       }
-      
+
       if (text || imageData) {
-        // Enviar typing indicator
         try {
-           const replyText = await processMessage(phone, text, imageData);
-           
-           if (META_ACCESS_TOKEN && replyText) {
-               const messagesToSend = replyText.split('|||').map(m => m.trim()).filter(m => m.length > 0);
-               
-               for (const msgContent of messagesToSend) {
-                   await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
-                     messaging_product: "whatsapp",
-                     to: phone,
-                     type: "text",
-                     text: { body: msgContent }
-                   }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
-               }
-           } else {
-               console.log("Respuesta generada (no enviada):", replyText);
-           }
+          const replyText = await processMessage(phone, text, imageData);
+          if (META_ACCESS_TOKEN && replyText) {
+            const messagesToSend = replyText.split('|||').map(m => m.trim()).filter(m => m.length > 0);
+            for (const msgContent of messagesToSend) {
+              await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
+                messaging_product: "whatsapp",
+                to: phone,
+                type: "text",
+                text: { body: msgContent }
+              }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
+            }
+          } else {
+            console.log("Respuesta generada (no enviada):", replyText);
+          }
         } catch (e) {
-            console.error(e);
+          console.error(e);
         }
       }
     }
