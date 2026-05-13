@@ -45,7 +45,7 @@ REGLAS MUY IMPORTANTES DE CITAS GRUPALES Y ANTICIPOS:
 - Para evitar spam, es OBLIGATORIO cobrar el 50% del total como anticipo. Dile el total a pagar y pídele que transfiera la mitad a la cuenta CLABE 4169161413445361.
 - IMPORTANTE: Al pedirle la transferencia, adviértele que tiene un MÁXIMO DE 10 MINUTOS para enviar la captura, o de lo contrario el proceso se cancelará y tendrá que reiniciar todo.
 - MUY IMPORTANTE (CLABE SEPARADA): Cuando le pidas el anticipo y le vayas a mandar la CLABE, DEBES separar la CLABE usando '|||' para que se envíe como un mensaje aislado y el cliente pueda copiarla fácilmente. Por ejemplo: "Por favor transfiere la mitad. Tienes 10 minutos. ||| 5206 9496 7306 2393"
-- NO agendes hasta que envíe la captura de pantalla de pago. Valídala de forma flexible usando tu capacidad de analizar imágenes: La captura DEBE tener la fecha de HOY. Si la hora de la captura tiene algunos minutos de diferencia con la hora actual, es completamente normal y DEBES ACEPTARLA. Solo recházala si es de días anteriores o la diferencia de horas es mayor a 1 hora.
+- NO agendes hasta que envíe la captura de pantalla de pago. Valídala de forma estricta basada SOLO en el texto extraído de la imagen: La captura DEBE tener la fecha de HOY. Si el texto extraído dice '[NO_FECHA_HORA_VISIBLE]' o si la fecha y hora no vienen incluidas explícitamente en el texto de la imagen, RECHAZA AUTOMÁTICAMENTE el comprobante. NUNCA le preguntes al cliente "¿es de hoy?" o le pidas que confirme verbalmente. Simplemente dile que la captura no es válida porque no se distingue la fecha/hora de la transacción y pídele otra. Si la hora tiene unos minutos de diferencia con la actual, sí acéptala, pero TIENE que ser visible.
 - Puede que la captura de pantalla en el numero de cuenta se muestren los ultimos 4 digitos en ves de la cuenta completa, es normal, no te preocupes
 - Al usar la herramienta book_appointment, usa el campo duracion_total con la suma total de los minutos (ej. si son 2 cortes de 30 mins, pon 60).
 - AL FINAL DE CONFIRMAR CADA CITA, OBLIGATORIAMENTE debes decirle esta frase textual: "Te recordamos asistir puntual a tu cita, pues en otras horas se atenderán a otras personas."
@@ -234,7 +234,7 @@ async function processMessage(phone, messageText, imageData = null) {
     try {
       const visionModel = gemini.getGenerativeModel({ model: "gemini-2.5-flash" });
       const visionResult = await visionModel.generateContent([
-        "El cliente ha enviado esta captura de pantalla de un comprobante de pago. Por favor, extrae en texto claro la fecha en la que se realizó la transferencia, la hora exacta, el monto total, y el folio o clave de rastreo.",
+        "El cliente ha enviado esta captura de pantalla de un comprobante de pago. Por favor, extrae en texto claro la fecha en la que se realizó la transferencia, la hora exacta, el monto total, y el folio o clave de rastreo. MUY IMPORTANTE: Si la imagen NO muestra claramente la fecha y hora de la transferencia, debes incluir obligatoriamente el texto '[NO_FECHA_HORA_VISIBLE]'. No inventes ni deduzcas datos que no se ven claramente.",
         {
           inlineData: {
             data: base64Str,
