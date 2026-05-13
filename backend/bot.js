@@ -57,6 +57,7 @@ CANCELACIÓN Y REPROGRAMACIÓN (REGLAS DE DINERO INQUEBRANTABLES):
 - NUNCA intentes agendarlo como una nueva cita (usando book_appointment) si te dice que ya pagó. En su lugar, usa la herramienta cancel_or_reschedule con action='reprogramar' pasándole el ID numérico del folio. El código verificará si es válido reprogramar sin cobrarle.
 - Lo que responda la herramienta cancel_or_reschedule es la ÚNICA verdad. Si la herramienta indica error o que ya alcanzó el límite de reprogramaciones (2), entonces sí oblígalo a pagar un nuevo anticipo completo como si fuera una cita nueva.
 - Si un cliente cancela (action='cancelar'), infórmale que su anticipo queda protegido en ese Folio para futuras reprogramaciones, pero dile que solo tiene 2 oportunidades de reprogramar antes de perder el dinero, y que no hay reembolsos en efectivo.
+- AL REPROGRAMAR: Asume automáticamente que el cliente quiere conservar el mismo barbero y el mismo servicio que tenía en su folio original. Por lo tanto, SOLO pregúntale la nueva fecha y hora. No le preguntes qué barbero o servicio quiere, a menos que el cliente te lo pida explícitamente. La base de datos mantendrá sus datos originales automáticamente.
 
 OTRAS REGLAS:
 - Horarios: Lunes a Sábado de 9:00 AM a 8:00 PM, y Domingos de 10:00 AM a 6:00 PM.
@@ -120,7 +121,8 @@ const tools = [
           action:      { type: "string", description: "'cancelar' o 'reprogramar'" },
           new_date:    { type: "string", description: "Nueva fecha YYYY-MM-DD (solo si action='reprogramar')" },
           new_time:    { type: "string", description: "Nueva hora HH:MM:00 (solo si action='reprogramar')" },
-          new_barbero_id: { type: "number", description: "Nuevo barbero_id (solo si action='reprogramar')" }
+          new_barbero_id: { type: "number", description: "Nuevo barbero_id (solo si action='reprogramar' y el cliente pidió cambiarlo)" },
+          new_service_name: { type: "string", description: "Nuevo nombre de servicio (solo si action='reprogramar' y el cliente pidió cambiarlo)" }
         },
         required: ["cita_id", "action"]
       }
@@ -174,7 +176,7 @@ const toolFunctions = {
       return { success: false, error: err.message };
     }
   },
-  cancel_or_reschedule: async ({ cita_id, action, new_date, new_time, new_barbero_id }) => {
+  cancel_or_reschedule: async ({ cita_id, action, new_date, new_time, new_barbero_id, new_service_name }) => {
     try {
       const { rows: citaRows } = await db.query(
         "SELECT * FROM citas WHERE id = $1",
@@ -205,10 +207,11 @@ const toolFunctions = {
         }
         const newFechaHora = `${new_date}T${new_time}`;
         const barberoFinal = new_barbero_id || cita.barbero_id;
+        const servicioFinal = new_service_name || cita.servicio;
         const newReproCount = (cita.reprogramaciones || 0) + 1;
         await db.query(
-          "UPDATE citas SET fecha_hora = $1, barbero_id = $2, status = 'pendiente', reprogramaciones = $3 WHERE id = $4",
-          [newFechaHora, barberoFinal, newReproCount, cita_id]
+          "UPDATE citas SET fecha_hora = $1, barbero_id = $2, servicio = $3, status = 'pendiente', reprogramaciones = $4 WHERE id = $5",
+          [newFechaHora, barberoFinal, servicioFinal, newReproCount, cita_id]
         );
         return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} reprogramada para ${new_date} a las ${new_time}. Quedan ${2 - newReproCount} reprogramaciones disponibles para este folio.` };
       }
