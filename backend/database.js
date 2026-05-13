@@ -60,9 +60,9 @@ async function initDB() {
     if (parseInt(barberoRows[0].count) === 0) {
       await client.query(`
         INSERT INTO barberos (nombre, telefono) VALUES
-        ('YAHIR GAMBOA ROSAS', '522291056547'),
-        ('ISABEL ROSAS GARCIA', '522297783905'),
-        ('REGINA ROSAS GARCIA', '522296524053')
+        ('YAHIR GAMBOA ROSAS', '5212291086547'),
+        ('ISABEL ROSAS GARCIA', '5212297783905'),
+        ('REGINA ROSAS GARCIA', '5212296524053')
       `);
       console.log('Barberos insertados.');
     }
