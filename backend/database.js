@@ -51,7 +51,8 @@ async function initDB() {
         status TEXT DEFAULT 'pendiente',
         comprobante_id TEXT,
         anticipo_pagado REAL,
-        duracion_total INTEGER DEFAULT 60
+        duracion_total INTEGER DEFAULT 60,
+        reprogramaciones INTEGER DEFAULT 0
       )
     `);
 

@@ -51,11 +51,12 @@ REGLAS MUY IMPORTANTES DE CITAS GRUPALES Y ANTICIPOS:
 - AL FINAL DE CONFIRMAR CADA CITA, OBLIGATORIAMENTE debes decirle esta frase textual: "Te recordamos asistir puntual a tu cita, pues en otras horas se atenderán a otras personas."
 - Muy importante en el mensaje donde mandes la cuenta clabe le adviertas al cliente que no hay reembolsos en caso de cancelación o inasistencia, lo unico que se podria hacer es mover la cita para otra fecha.
 
-CANCELACIÓN Y REPROGRAMACIÓN:
-- Si el cliente quiere cancelar o mover su cita, pídele su FOLIO de reserva (ej. ISA-0012).
-- Usa la herramienta cancel_or_reschedule pasándole solo el ID numérico (si es ISA-0012, pasas 12).
-- Si cancela, recuérdale que no hay reembolsos del anticipo.
-- Si reprograma, pregúntale para cuándo quiere moverla y revisa disponibilidad antes de llamar a la herramienta.
+CANCELACIÓN Y REPROGRAMACIÓN (REGLAS DE DINERO INQUEBRANTABLES):
+- TIENES ESTRICTAMENTE PROHIBIDO tomar decisiones financieras, hacer "excepciones" o hacerle favores al cliente porque argumente que "ya pagó antes". Eres un robot, no el dueño.
+- Si un cliente dice que ya había pagado y que canceló una cita anterior para usar ese dinero, EXÍGELE OBLIGATORIAMENTE su FOLIO (ej. ISA-0012).
+- NUNCA intentes agendarlo como una nueva cita (usando book_appointment) si te dice que ya pagó. En su lugar, usa la herramienta cancel_or_reschedule con action='reprogramar' pasándole el ID numérico del folio. El código verificará si es válido reprogramar sin cobrarle.
+- Lo que responda la herramienta cancel_or_reschedule es la ÚNICA verdad. Si la herramienta indica error o que ya alcanzó el límite de reprogramaciones (2), entonces sí oblígalo a pagar un nuevo anticipo completo como si fuera una cita nueva.
+- Si un cliente cancela (action='cancelar'), infórmale que su anticipo queda protegido en ese Folio para futuras reprogramaciones, pero dile que solo tiene 2 oportunidades de reprogramar antes de perder el dinero, y que no hay reembolsos en efectivo.
 
 OTRAS REGLAS:
 - Horarios: Lunes a Sábado de 9:00 AM a 8:00 PM, y Domingos de 10:00 AM a 6:00 PM.
@@ -183,7 +184,7 @@ const toolFunctions = {
         return { success: false, error: "No encontré ninguna cita con ese folio. Verifica que el número sea correcto." };
       }
       const cita = citaRows[0];
-      if (cita.status === 'cancelada') {
+      if (cita.status === 'cancelada' && action === 'cancelar') {
         return { success: false, error: "Esta cita ya fue cancelada anteriormente." };
       }
       if (cita.status === 'completada') {
@@ -192,20 +193,24 @@ const toolFunctions = {
 
       if (action === 'cancelar') {
         await db.query("UPDATE citas SET status = 'cancelada' WHERE id = $1", [cita_id]);
-        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} cancelada correctamente.` };
+        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} cancelada correctamente. El dinero queda protegido en este folio.` };
       }
 
       if (action === 'reprogramar') {
+        if (cita.reprogramaciones >= 2) {
+          return { success: false, error: "Esta cita ya alcanzó el límite máximo de reprogramaciones (2). El cliente debe agendar una nueva cita pagando un nuevo anticipo." };
+        }
         if (!new_date || !new_time) {
           return { success: false, error: "Necesito la nueva fecha y hora para reprogramar." };
         }
         const newFechaHora = `${new_date}T${new_time}`;
         const barberoFinal = new_barbero_id || cita.barbero_id;
+        const newReproCount = (cita.reprogramaciones || 0) + 1;
         await db.query(
-          "UPDATE citas SET fecha_hora = $1, barbero_id = $2, status = 'pendiente' WHERE id = $3",
-          [newFechaHora, barberoFinal, cita_id]
+          "UPDATE citas SET fecha_hora = $1, barbero_id = $2, status = 'pendiente', reprogramaciones = $3 WHERE id = $4",
+          [newFechaHora, barberoFinal, newReproCount, cita_id]
         );
-        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} reprogramada para ${new_date} a las ${new_time}.` };
+        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} reprogramada para ${new_date} a las ${new_time}. Quedan ${2 - newReproCount} reprogramaciones disponibles para este folio.` };
       }
 
       return { success: false, error: "Acción no reconocida. Usa 'cancelar' o 'reprogramar'." };
