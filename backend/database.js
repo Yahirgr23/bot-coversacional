@@ -89,7 +89,8 @@ async function initDB() {
         ('Barba sola', 100, 30),
         ('Barba y corte', 200, 60),
         ('Corte de dama', 140, 45),
-        ('Alisado xpress (Precio base)', 250, 90)
+        ('Alisado xpress (Precio base)', 200, 90),
+        ('Corte clásico', 120, 30)
       `);
       console.log('Servicios insertados.');
     }

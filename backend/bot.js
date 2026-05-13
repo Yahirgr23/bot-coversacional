@@ -1,10 +1,13 @@
 require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { OpenAI } = require('openai');
 const db = require('./database');
 const { getAvailableSlots } = require('./slots');
 const axios = require('axios');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
+const openai = new OpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey: process.env.DEEPSEEK_API_KEY || "dummy_key"
+});
 
 const currentDate = new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -20,7 +23,7 @@ REGLAS DE BIENVENIDA Y CONTEXTO:
 - Nunca olvides el contexto de la plática actual. Mantén el hilo de la conversación.
 
 REGLAS DE PRECIOS Y ALISADO:
-- Para el "Alisado xpress", menciónale que el precio es DESDE $250 y que el precio final dependerá del largo de su cabello (se define en la visita física). Aún así, para agendar debe depositar el 50% de la base, es decir $125.
+- Para el "Alisado xpress", menciónale que el precio es DESDE $200 y que el precio final dependerá del largo de su cabello (se define en la visita física). Aún así, para agendar debe depositar el 50% de la base, es decir $100.
 
 REGLAS DE CONVERSACIÓN (ANTI-SPAM Y DESVÍOS):
 - Si el cliente hace preguntas tontas, irrelevantes o desvía el tema, dile amablemente que tu función es únicamente atender dudas sobre servicios de barbería y citas.
@@ -39,11 +42,18 @@ REGLAS MUY IMPORTANTES DE CITAS GRUPALES Y ANTICIPOS:
 - Para evitar spam, es OBLIGATORIO cobrar el 50% del total como anticipo. Dile el total a pagar y pídele que transfiera la mitad a la cuenta CLABE 4169161413445361.
 - IMPORTANTE: Al pedirle la transferencia, adviértele que tiene un MÁXIMO DE 10 MINUTOS para enviar la captura, o de lo contrario el proceso se cancelará y tendrá que reiniciar todo.
 - MUY IMPORTANTE (CLABE SEPARADA): Cuando le pidas el anticipo y le vayas a mandar la CLABE, DEBES separar la CLABE usando '|||' para que se envíe como un mensaje aislado y el cliente pueda copiarla fácilmente. Por ejemplo: "Por favor transfiere la mitad. Tienes 10 minutos. ||| 5206 9496 7306 2393"
-- NO agendes hasta que envíe la captura de pantalla de pago. Valídala de forma flexible: La captura DEBE tener la fecha de HOY. Si la hora de la captura tiene algunos minutos de diferencia con la hora actual, es completamente normal y DEBES ACEPTARLA. Solo recházala si es de días anteriores o la diferencia de horas es mayor a 1 hora.
+- NO agendes hasta que envíe la captura de pantalla de pago. Valídala de forma flexible usando tu capacidad de analizar imágenes: La captura DEBE tener la fecha de HOY. Si la hora de la captura tiene algunos minutos de diferencia con la hora actual, es completamente normal y DEBES ACEPTARLA. Solo recházala si es de días anteriores o la diferencia de horas es mayor a 1 hora.
 - Puede que la captura de pantalla en el numero de cuenta se muestren los ultimos 4 digitos en ves de la cuenta completa, es normal, no te preocupes
 - Al usar la herramienta book_appointment, usa el campo duracion_total con la suma total de los minutos (ej. si son 2 cortes de 30 mins, pon 60).
 - AL FINAL DE CONFIRMAR CADA CITA, OBLIGATORIAMENTE debes decirle esta frase textual: "Te recordamos asistir puntual a tu cita, pues en otras horas se atenderán a otras personas."
 - Muy importante en el mensaje donde mandes la cuenta clabe le adviertas al cliente que no hay reembolsos en caso de cancelación o inasistencia, lo unico que se podria hacer es mover la cita para otra fecha.
+
+CANCELACIÓN Y REPROGRAMACIÓN:
+- Si el cliente quiere cancelar o mover su cita, pídele su FOLIO de reserva (ej. ISA-0012).
+- Usa la herramienta cancel_or_reschedule pasándole solo el ID numérico (si es ISA-0012, pasas 12).
+- Si cancela, recuérdale que no hay reembolsos del anticipo.
+- Si reprograma, pregúntale para cuándo quiere moverla y revisa disponibilidad antes de llamar a la herramienta.
+
 OTRAS REGLAS:
 - Horarios: Lunes a Sábado de 9:00 AM a 8:00 PM, y Domingos de 10:00 AM a 6:00 PM.
 - Barberos: YAHIR GAMBOA ROSAS, ISABEL ROSAS GARCIA, REGINA ROSAS GARCIA.
@@ -51,181 +61,234 @@ OTRAS REGLAS:
 
 const tools = [
   {
-    name: "get_available_slots",
-    description: "Obtiene los horarios disponibles para una fecha específica, y opcionalmente para un barbero preferido.",
-    parameters: {
-      type: "object",
-      properties: {
-        date_string: { type: "string", description: "Fecha en formato YYYY-MM-DD" },
-        preferred_barbero: { type: "string", description: "Nombre del barbero preferido (opcional)" }
-      },
-      required: ["date_string"]
+    type: "function",
+    function: {
+      name: "get_available_slots",
+      description: "Obtiene los horarios disponibles para una fecha específica, y opcionalmente para un barbero preferido.",
+      parameters: {
+        type: "object",
+        properties: {
+          date_string: { type: "string", description: "Fecha en formato YYYY-MM-DD" },
+          preferred_barbero: { type: "string", description: "Nombre del barbero preferido (opcional)" }
+        },
+        required: ["date_string"]
+      }
     }
   },
   {
-    name: "get_prices",
-    description: "Obtiene el catálogo de servicios y precios.",
-    parameters: { type: "object", properties: {} }
+    type: "function",
+    function: {
+      name: "get_prices",
+      description: "Obtiene el catálogo de servicios y precios.",
+      parameters: { type: "object", properties: {} }
+    }
   },
   {
-    name: "book_appointment",
-    description: "Agenda la cita en la base de datos tras validar el pago.",
-    parameters: {
-      type: "object",
-      properties: {
-        client_name: { type: "string" },
-        date_string: { type: "string", description: "Fecha YYYY-MM-DD" },
-        time_string: { type: "string", description: "Hora HH:MM:00" },
-        barbero_id: { type: "number" },
-        service_name: { type: "string" },
-        comprobante_id: { type: "string", description: "ID/Folio extraído de la captura" },
-        anticipo_pagado: { type: "number", description: "Monto detectado en la captura" },
-        duracion_total: { type: "number", description: "Tiempo total calculado en minutos" }
-      },
-      required: ["client_name", "date_string", "time_string", "barbero_id", "service_name", "comprobante_id", "anticipo_pagado", "duracion_total"]
+    type: "function",
+    function: {
+      name: "book_appointment",
+      description: "Agenda la cita en la base de datos tras validar el pago de la imagen proporcionada.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_name: { type: "string" },
+          date_string: { type: "string", description: "Fecha YYYY-MM-DD" },
+          time_string: { type: "string", description: "Hora HH:MM:00" },
+          barbero_id: { type: "number" },
+          service_name: { type: "string" },
+          comprobante_id: { type: "string", description: "ID/Folio extraído de la captura de pantalla" },
+          anticipo_pagado: { type: "number", description: "Monto pagado extraído de la captura" },
+          duracion_total: { type: "number", description: "Tiempo total calculado en minutos" }
+        },
+        required: ["client_name", "date_string", "time_string", "barbero_id", "service_name", "comprobante_id", "anticipo_pagado", "duracion_total"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "cancel_or_reschedule",
+      description: "Cancela o reprograma una cita existente usando su folio de referencia (número de ID).",
+      parameters: {
+        type: "object",
+        properties: {
+          cita_id:     { type: "number", description: "ID numérico del folio (ej. si el folio es ISA-0012, el id es 12)" },
+          action:      { type: "string", description: "'cancelar' o 'reprogramar'" },
+          new_date:    { type: "string", description: "Nueva fecha YYYY-MM-DD (solo si action='reprogramar')" },
+          new_time:    { type: "string", description: "Nueva hora HH:MM:00 (solo si action='reprogramar')" },
+          new_barbero_id: { type: "number", description: "Nuevo barbero_id (solo si action='reprogramar')" }
+        },
+        required: ["cita_id", "action"]
+      }
     }
   }
 ];
 
-// Mapeo de herramientas a funciones reales
 const toolFunctions = {
   get_available_slots: async ({ date_string, preferred_barbero }) => {
     const slots = await getAvailableSlots(date_string, preferred_barbero);
     if (slots.length === 0) return { mensaje: "No hay horarios disponibles para ese día." };
     return { disponibles: slots };
   },
-  get_prices: () => {
-    return new Promise((resolve) => {
-      db.all("SELECT nombre, precio, duracion_min FROM servicios", (err, rows) => {
-        resolve({ servicios: rows });
-      });
-    });
+  get_prices: async () => {
+    const { rows } = await db.query("SELECT nombre, precio, duracion_min FROM servicios");
+    return { servicios: rows };
   },
-  book_appointment: ({ client_name, client_phone, date_string, time_string, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total }) => {
-    return new Promise((resolve) => {
-      const fechaHora = `${date_string}T${time_string}`;
-      const stmt = db.prepare(`INSERT INTO citas (cliente_nombre, cliente_telefono, fecha_hora, barbero_id, servicio, comprobante_id, anticipo_pagado, duracion_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-      stmt.run(client_name, client_phone, fechaHora, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total, function (err) {
-        if (err) {
-          resolve({ success: false, error: err.message });
-        } else {
-          const cita_id = this.lastID;
+  book_appointment: async ({ client_name, client_phone, date_string, time_string, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total }) => {
+    const fechaHora = `${date_string}T${time_string}`;
+    try {
+      const { rows } = await db.query(
+        `INSERT INTO citas (cliente_nombre, cliente_telefono, fecha_hora, barbero_id, servicio, comprobante_id, anticipo_pagado, duracion_total)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [client_name, client_phone, fechaHora, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total]
+      );
+      const cita_id = rows[0].id;
 
-          // Obtener el teléfono del barbero para notificarle
-          db.get("SELECT nombre, telefono FROM barberos WHERE id = ?", [barbero_id], async (errBarbero, row) => {
-            if (!errBarbero && row && row.telefono) {
-              try {
-                const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-                const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
-                const mensajeNotificacion = `💈 ¡Nueva Cita Agendada!\n\n📅 Fecha: ${date_string} a las ${time_string}\n🧑‍🦱 Cliente: ${client_name}\n✂️ Servicio: ${service_name}\n✅ Revisa el panel web para ver el folio de pago y más detalles.`;
-
-                if (META_ACCESS_TOKEN && PHONE_NUMBER_ID) {
-                  await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
-                    messaging_product: "whatsapp",
-                    to: row.telefono,
-                    type: "text",
-                    text: { body: mensajeNotificacion }
-                  }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
-                  console.log(`Notificación enviada al barbero ${row.nombre} al número ${row.telefono}`);
-                }
-              } catch (e) {
-                console.error("Error al enviar notificación al barbero:", e.response?.data || e.message);
-              }
-            }
-            resolve({ success: true, cita_id: cita_id, mensaje: "Cita agendada exitosamente." });
-          });
+      const { rows: barberoRows } = await db.query("SELECT nombre, telefono FROM barberos WHERE id = $1", [barbero_id]);
+      const barbero = barberoRows[0];
+      if (barbero && barbero.telefono) {
+        try {
+          const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+          const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
+          const mensajeNotificacion = `💈 ¡Nueva Cita Agendada!\n\n📅 Fecha: ${date_string} a las ${time_string}\n🧑‍🦱 Cliente: ${client_name}\n✂️ Servicio: ${service_name}\n✅ Revisa el panel web para ver el folio de pago y más detalles.`;
+          if (META_ACCESS_TOKEN && PHONE_NUMBER_ID) {
+            await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
+              messaging_product: "whatsapp",
+              to: barbero.telefono,
+              type: "text",
+              text: { body: mensajeNotificacion }
+            }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
+            console.log(`Notificación enviada al barbero ${barbero.nombre}`);
+          }
+        } catch (e) {
+          console.error("Error al enviar notificación al barbero:", e.response?.data || e.message);
         }
-      });
-      stmt.finalize();
-    });
+      }
+      const folio = `ISA-${String(cita_id).padStart(4, '0')}`;
+      return { success: true, cita_id, folio, mensaje: `Cita agendada exitosamente. El folio de reserva es: ${folio}.` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  },
+  cancel_or_reschedule: async ({ cita_id, action, new_date, new_time, new_barbero_id }) => {
+    try {
+      const { rows: citaRows } = await db.query(
+        "SELECT * FROM citas WHERE id = $1",
+        [cita_id]
+      );
+      if (citaRows.length === 0) {
+        return { success: false, error: "No encontré ninguna cita con ese folio. Verifica que el número sea correcto." };
+      }
+      const cita = citaRows[0];
+      if (cita.status === 'cancelada') {
+        return { success: false, error: "Esta cita ya fue cancelada anteriormente." };
+      }
+      if (cita.status === 'completada') {
+        return { success: false, error: "Esta cita ya fue completada y no puede modificarse." };
+      }
+
+      if (action === 'cancelar') {
+        await db.query("UPDATE citas SET status = 'cancelada' WHERE id = $1", [cita_id]);
+        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} cancelada correctamente.` };
+      }
+
+      if (action === 'reprogramar') {
+        if (!new_date || !new_time) {
+          return { success: false, error: "Necesito la nueva fecha y hora para reprogramar." };
+        }
+        const newFechaHora = `${new_date}T${new_time}`;
+        const barberoFinal = new_barbero_id || cita.barbero_id;
+        await db.query(
+          "UPDATE citas SET fecha_hora = $1, barbero_id = $2, status = 'pendiente' WHERE id = $3",
+          [newFechaHora, barberoFinal, cita_id]
+        );
+        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} reprogramada para ${new_date} a las ${new_time}.` };
+      }
+
+      return { success: false, error: "Acción no reconocida. Usa 'cancelar' o 'reprogramar'." };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 };
 
-const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash",
-  systemInstruction: SYSTEM_PROMPT,
-  tools: [{ functionDeclarations: tools }]
-});
-
-// En memoria simple para guardar historiales y baneos
 const userChats = {};
 const bannedUsers = {};
 
 async function processMessage(phone, messageText, imageData = null) {
   if (bannedUsers[phone] && bannedUsers[phone] > Date.now()) {
     console.log(`Mensaje ignorado, usuario ${phone} está baneado.`);
-    return null; // El webhook no envía respuesta si es null
+    return null;
   }
 
   if (!userChats[phone]) {
-    userChats[phone] = model.startChat({});
+    userChats[phone] = [{ role: "system", content: SYSTEM_PROMPT }];
   }
 
-  const chat = userChats[phone];
+  let userContent = messageText;
+  if (imageData) {
+    const base64Str = imageData.buffer.toString("base64");
+    userContent = [
+      { type: "text", text: messageText || "Revisa esta captura de pantalla de mi transferencia." },
+      { type: "image_url", image_url: { url: `data:${imageData.mimeType};base64,${base64Str}` } }
+    ];
+  }
+
+  userChats[phone].push({ role: "user", content: userContent });
 
   try {
-    let msgContent = messageText;
-    if (imageData) {
-      msgContent = [
-        { text: messageText },
-        {
-          inlineData: {
-            data: imageData.buffer.toString("base64"),
-            mimeType: imageData.mimeType
-          }
-        }
-      ];
-    }
+    let response = await openai.chat.completions.create({
+      model: "deepseek-v4-flash", 
+      messages: userChats[phone],
+      tools: tools
+    });
 
-    let result = await chat.sendMessage(msgContent);
+    let responseMessage = response.choices[0].message;
+    userChats[phone].push(responseMessage);
 
-    // Process function calls
     let iterations = 0;
-    while (iterations < 5) {
-      let functionCall = null;
-      let functionName = null;
-      const parts = result.response.candidates?.[0]?.content?.parts || [];
-      for (const part of parts) {
-        if (part.functionCall) {
-          functionCall = part.functionCall;
-          functionName = functionCall.name;
-          break;
+    while (responseMessage.tool_calls && iterations < 5) {
+      for (const toolCall of responseMessage.tool_calls) {
+        const functionName = toolCall.function.name;
+        const args = JSON.parse(toolCall.function.arguments);
+        args.client_phone = phone;
+
+        const func = toolFunctions[functionName];
+        let fnResult = {};
+        if (func) {
+          fnResult = await func(args);
+        } else {
+          fnResult = { error: "Herramienta no encontrada" };
         }
+
+        userChats[phone].push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(fnResult)
+        });
       }
 
-      if (!functionCall) break;
+      response = await openai.chat.completions.create({
+        model: "deepseek-v4-flash",
+        messages: userChats[phone],
+        tools: tools
+      });
 
-      const args = functionCall.args || {};
-      args.client_phone = phone; // Inyectar automáticamente el número real de WhatsApp
-
-      const func = toolFunctions[functionName];
-      let fnResult = {};
-      if (func) {
-        fnResult = await func(args);
-      } else {
-        fnResult = { error: "Herramienta no encontrada" };
-      }
-
-      result = await chat.sendMessage([{
-        functionResponse: {
-          name: functionName,
-          response: { result: fnResult }
-        }
-      }]);
-
+      responseMessage = response.choices[0].message;
+      userChats[phone].push(responseMessage);
       iterations++;
     }
 
-    let finalResponse = result.response.text();
-    if (finalResponse.includes('[BANEADO_X_MINUTOS]')) {
-      const banTime = 30 * 60 * 1000; // 30 minutos
+    let finalResponse = responseMessage.content;
+    if (finalResponse && finalResponse.includes('[BANEADO_X_MINUTOS]')) {
+      const banTime = 30 * 60 * 1000;
       bannedUsers[phone] = Date.now() + banTime;
       return "Has sido silenciado temporalmente (30 minutos) por uso inadecuado del asistente virtual.";
     }
 
     return finalResponse;
   } catch (err) {
-    console.error("Error processMessage:", err);
+    console.error("Error processMessage con DeepSeek:", err.response?.data || err.message);
     return "Lo siento, tuve un problema técnico. ¿Puedes repetirlo?";
   }
 }
