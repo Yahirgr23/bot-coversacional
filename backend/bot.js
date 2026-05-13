@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { OpenAI } = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const db = require('./database');
 const { getAvailableSlots } = require('./slots');
 const axios = require('axios');
@@ -8,6 +9,8 @@ const openai = new OpenAI({
   baseURL: 'https://api.deepseek.com',
   apiKey: process.env.DEEPSEEK_API_KEY || "dummy_key"
 });
+
+const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 
 const currentDate = new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -228,10 +231,23 @@ async function processMessage(phone, messageText, imageData = null) {
   let userContent = messageText;
   if (imageData) {
     const base64Str = imageData.buffer.toString("base64");
-    userContent = [
-      { type: "text", text: messageText || "Revisa esta captura de pantalla de mi transferencia." },
-      { type: "image_url", image_url: { url: `data:${imageData.mimeType};base64,${base64Str}` } }
-    ];
+    try {
+      const visionModel = gemini.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const visionResult = await visionModel.generateContent([
+        "El cliente ha enviado esta captura de pantalla de un comprobante de pago. Por favor, extrae en texto claro la fecha en la que se realizó la transferencia, la hora exacta, el monto total, y el folio o clave de rastreo.",
+        {
+          inlineData: {
+            data: base64Str,
+            mimeType: imageData.mimeType
+          }
+        }
+      ]);
+      const extractedText = visionResult.response.text();
+      userContent = `[IMAGEN ENVIADA POR EL CLIENTE]\nHe adjuntado una captura de pantalla. Los datos extraídos de la imagen son:\n${extractedText}`;
+    } catch(err) {
+      console.error("Error en Gemini Vision:", err);
+      userContent = "[IMAGEN ENVIADA POR EL CLIENTE]\nSe envió una captura pero hubo un error al leerla visualmente.";
+    }
   }
 
   userChats[phone].push({ role: "user", content: userContent });
