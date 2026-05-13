@@ -213,6 +213,30 @@ const toolFunctions = {
           "UPDATE citas SET fecha_hora = $1, barbero_id = $2, servicio = $3, status = 'pendiente', reprogramaciones = $4 WHERE id = $5",
           [newFechaHora, barberoFinal, servicioFinal, newReproCount, cita_id]
         );
+
+        // Notificar al barbero por WhatsApp
+        const { rows: barberoRows } = await db.query("SELECT nombre, telefono FROM barberos WHERE id = $1", [barberoFinal]);
+        const barbero = barberoRows[0];
+        if (barbero && barbero.telefono) {
+          try {
+            const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+            const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
+            const folioStr = `ISA-${String(cita_id).padStart(4,'0')}`;
+            const mensajeNotificacion = `🔄 ¡Cita Reprogramada!\n\nEl folio ${folioStr} ha sido reprogramado.\n📅 Nueva Fecha: ${new_date} a las ${new_time}\n🧑‍🦱 Cliente: ${cita.cliente_nombre}\n✂️ Servicio: ${servicioFinal}\n✅ Revisa el panel web para más detalles.`;
+            if (META_ACCESS_TOKEN && PHONE_NUMBER_ID) {
+              await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
+                messaging_product: "whatsapp",
+                to: barbero.telefono,
+                type: "text",
+                text: { body: mensajeNotificacion }
+              }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
+              console.log(`Notificación de reprogramación enviada al barbero ${barbero.nombre}`);
+            }
+          } catch (e) {
+            console.error("Error al enviar notificación de reprogramación al barbero:", e.response?.data || e.message);
+          }
+        }
+
         return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} reprogramada para ${new_date} a las ${new_time}. Quedan ${2 - newReproCount} reprogramaciones disponibles para este folio.` };
       }
 
