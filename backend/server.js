@@ -127,6 +127,86 @@ app.delete('/api/usuarios/:id', async (req, res) => {
   }
 });
 
+app.post('/api/barberos', async (req, res) => {
+  const { nombre, telefono } = req.body;
+  try {
+    await db.query("INSERT INTO barberos (nombre, telefono) VALUES ($1, $2)", [nombre, telefono]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/barberos/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nombre, telefono } = req.body;
+  try {
+    await db.query("UPDATE barberos SET nombre = $1, telefono = $2 WHERE id = $3", [nombre, telefono, id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/barberos/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query("DELETE FROM barberos WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// RUTAS GESTIÓN DE SERVICIOS
+// ==========================================
+app.get('/api/servicios', async (req, res) => {
+  try {
+    const { rows } = await db.query("SELECT * FROM servicios ORDER BY id ASC");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/servicios', async (req, res) => {
+  const { nombre, precio, duracion_min, tipo_precio } = req.body;
+  try {
+    await db.query(
+      "INSERT INTO servicios (nombre, precio, duracion_min, tipo_precio) VALUES ($1, $2, $3, $4)",
+      [nombre, precio, duracion_min, tipo_precio || 'fijo']
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/servicios/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nombre, precio, duracion_min, tipo_precio } = req.body;
+  try {
+    await db.query(
+      "UPDATE servicios SET nombre = $1, precio = $2, duracion_min = $3, tipo_precio = $4 WHERE id = $5",
+      [nombre, precio, duracion_min, tipo_precio || 'fijo', id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/servicios/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query("DELETE FROM servicios WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==========================================
 // WHATSAPP WEBHOOK
 // ==========================================

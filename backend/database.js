@@ -35,7 +35,8 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         nombre TEXT NOT NULL,
         precio REAL NOT NULL,
-        duracion_min INTEGER NOT NULL
+        duracion_min INTEGER NOT NULL,
+        tipo_precio TEXT DEFAULT 'fijo'
       )
     `);
 

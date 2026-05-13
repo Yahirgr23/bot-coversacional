@@ -12,21 +12,36 @@ const openai = new OpenAI({
 
 const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "dummy_key");
 
-const currentDate = new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+async function getSystemPrompt() {
+  const currentDate = new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  
+  const { rows: barberosRows } = await db.query("SELECT * FROM barberos");
+  const { rows: serviciosRows } = await db.query("SELECT * FROM servicios");
 
-const SYSTEM_PROMPT = `Eres el asistente virtual de la barbería "CORTES Y ESTILOS ISA". Eres amable, usas emojis para sonar amigable 💈✂️ y hablas en español natural (México). 
+  const barberosText = barberosRows.map(b => `- ${b.nombre}`).join("\n");
+  const serviciosText = serviciosRows.map(s => {
+    if (s.tipo_precio === 'desde') {
+      return `- ${s.nombre}: DESDE $${s.precio} (Se define en la visita física, pero para agendar debe depositar el 50% de la base, es decir $${s.precio/2}) - Duración: ${s.duracion_min} mins`;
+    }
+    return `- ${s.nombre}: $${s.precio} (Duración: ${s.duracion_min} mins)`;
+  }).join("\n");
+
+  return `Eres el asistente virtual de la barbería "CORTES Y ESTILOS ISA". Eres amable, usas emojis para sonar amigable 💈✂️ y hablas en español natural (México). 
 HOY ES: ${currentDate}. Usa esta fecha como referencia para cuando te pidan "mañana", "el viernes", etc. SIEMPRE agenda citas en el año actual.
 
 Tu trabajo es ayudar a los clientes a:
 1. Agendar citas.
 2. Consultar precios y disponibilidades.
 
+SERVICIOS Y PRECIOS OFICIALES:
+${serviciosText}
+
+NUESTROS BARBEROS:
+${barberosText}
+
 REGLAS DE BIENVENIDA Y CONTEXTO:
 - Siempre que un cliente te salude por primera vez, dale una cálida bienvenida mencionando a "Cortes y Estilos ISA" y usando emojis.
 - Nunca olvides el contexto de la plática actual. Mantén el hilo de la conversación.
-
-REGLAS DE PRECIOS Y ALISADO:
-- Para el "Alisado xpress", menciónale que el precio es DESDE $200 y que el precio final dependerá del largo de su cabello (se define en la visita física). Aún así, para agendar debe depositar el 50% de la base, es decir $100.
 
 REGLAS ESTRICTAS DE MODERACIÓN (INSULTOS, SPAM, IMÁGENES IRRELEVANTES):
 - Tolerancia CERO a insultos, groserías o acoso.
@@ -34,13 +49,13 @@ REGLAS ESTRICTAS DE MODERACIÓN (INSULTOS, SPAM, IMÁGENES IRRELEVANTES):
 - Si el cliente ignora la advertencia y vuelve a insultar, desviar el tema o mandar fotos irrelevantes, tu respuesta debe ser EXACTAMENTE y ÚNICAMENTE la palabra clave: [BANEADO_X_MINUTOS]
 
 FLUJO DE CONVERSACIÓN PARA AGENDAR:
-- Si el cliente quiere agendar para un día (ej. "mañana"), ANTES de darle los horarios, pregúntale si tiene algún barbero de preferencia (Yahir, Isabel o Regina).
+- Si el cliente quiere agendar para un día (ej. "mañana"), ANTES de darle los horarios, pregúntale si tiene algún barbero de preferencia.
 - Si elige a uno, busca disponibilidad para ese barbero. Si dice "ninguno" o "da igual", asígnale uno automáticamente buscando la disponibilidad general.
 - Al mostrar los horarios, menciona siempre el día exacto (ej. "Perfecto, para mañana 8 de mayo tengo libres: ...").
 - CONVERSIÓN DE HORA: La herramienta te devuelve las horas en formato de 24 horas (ej. "19:00"). Si el cliente te pide "7 PM", DEBES buscar "19:00" en los resultados. Siempre muéstrale las horas al cliente en formato 12 horas (ej. 7:00 PM).
 
 REGLAS MUY IMPORTANTES DE CITAS GRUPALES Y ANTICIPOS:
-- Si el cliente pide servicio para MÚLTIPLES personas (ej. "dos niños"), suma automáticamente los precios y los tiempos basándote en la información de la herramienta get_prices.
+- Si el cliente pide servicio para MÚLTIPLES personas (ej. "dos niños"), suma automáticamente los precios y los tiempos basándote en la información de arriba.
 - Si el barbero solicitado está ocupado en la hora que pidió el cliente, recomiéndale inmediatamente los horarios donde SÍ está libre u ofrécele a los otros barberos que estén libres a esa hora.
 - Para evitar spam, es OBLIGATORIO cobrar el 50% del total como anticipo. Dile el total a pagar y pídele que transfiera la mitad a la cuenta CLABE 4169161413445361.
 - IMPORTANTE: Al pedirle la transferencia, adviértele que tiene un MÁXIMO DE 10 MINUTOS para enviar la captura, o de lo contrario el proceso se cancelará y tendrá que reiniciar todo.
@@ -61,8 +76,8 @@ CANCELACIÓN Y REPROGRAMACIÓN (REGLAS DE DINERO INQUEBRANTABLES):
 
 OTRAS REGLAS:
 - Horarios: Lunes a Sábado de 9:00 AM a 8:00 PM, y Domingos de 10:00 AM a 6:00 PM.
-- Barberos: YAHIR GAMBOA ROSAS, ISABEL ROSAS GARCIA, REGINA ROSAS GARCIA.
 - Ubicación: Si el cliente pregunta dónde están ubicados, respóndele que están "Sobre carretera dos lomas fracc. dorado real al lado de las 3B" y siempre envíale este link de Google Maps: https://maps.app.goo.gl/VTAE6jn2cFPo8WpFA`;
+}
 
 const tools = [
   {
@@ -80,14 +95,7 @@ const tools = [
       }
     }
   },
-  {
-    type: "function",
-    function: {
-      name: "get_prices",
-      description: "Obtiene el catálogo de servicios y precios.",
-      parameters: { type: "object", properties: {} }
-    }
-  },
+
   {
     type: "function",
     function: {
@@ -135,10 +143,6 @@ const toolFunctions = {
     const slots = await getAvailableSlots(date_string, preferred_barbero);
     if (slots.length === 0) return { mensaje: "No hay horarios disponibles para ese día." };
     return { disponibles: slots };
-  },
-  get_prices: async () => {
-    const { rows } = await db.query("SELECT nombre, precio, duracion_min FROM servicios");
-    return { servicios: rows };
   },
   book_appointment: async ({ client_name, client_phone, date_string, time_string, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total }) => {
     const fechaHora = `${date_string}T${time_string}`;
@@ -256,8 +260,11 @@ async function processMessage(phone, messageText, imageData = null) {
     return null;
   }
 
-  if (!userChats[phone]) {
-    userChats[phone] = [{ role: "system", content: SYSTEM_PROMPT }];
+  const isFirstMessage = !userChats[phone];
+  if (isFirstMessage) {
+    userChats[phone] = { messages: [], lastActive: Date.now() };
+  } else {
+    userChats[phone].lastActive = Date.now();
   }
 
   let userContent = messageText;
@@ -282,17 +289,33 @@ async function processMessage(phone, messageText, imageData = null) {
     }
   }
 
-  userChats[phone].push({ role: "user", content: userContent });
+  const dynamicSystemPrompt = await getSystemPrompt();
+  let messages;
+
+  if (isFirstMessage) {
+    messages = [
+      { role: "system", content: dynamicSystemPrompt },
+      { role: "user", content: userContent }
+    ];
+  } else {
+    const history = userChats[phone].messages;
+    if (history.length > 0 && history[0].role === 'system') {
+      history[0].content = dynamicSystemPrompt;
+    } else {
+      history.unshift({ role: "system", content: dynamicSystemPrompt });
+    }
+    messages = history.concat([{ role: "user", content: userContent }]);
+  }
 
   try {
     let response = await openai.chat.completions.create({
       model: "deepseek-v4-flash", 
-      messages: userChats[phone],
+      messages: messages,
       tools: tools
     });
 
     let responseMessage = response.choices[0].message;
-    userChats[phone].push(responseMessage);
+    messages.push(responseMessage);
 
     let iterations = 0;
     while (responseMessage.tool_calls && iterations < 5) {
@@ -309,7 +332,7 @@ async function processMessage(phone, messageText, imageData = null) {
           fnResult = { error: "Herramienta no encontrada" };
         }
 
-        userChats[phone].push({
+        messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
           content: JSON.stringify(fnResult)
@@ -318,15 +341,16 @@ async function processMessage(phone, messageText, imageData = null) {
 
       response = await openai.chat.completions.create({
         model: "deepseek-v4-flash",
-        messages: userChats[phone],
+        messages: messages,
         tools: tools
       });
 
       responseMessage = response.choices[0].message;
-      userChats[phone].push(responseMessage);
+      messages.push(responseMessage);
       iterations++;
     }
 
+    userChats[phone].messages = messages;
     let finalResponse = responseMessage.content;
     if (finalResponse && finalResponse.includes('[BANEADO_X_MINUTOS]')) {
       const banTime = 30 * 60 * 1000;
