@@ -186,6 +186,9 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2 mb-1">
                         <UserIcon className="w-5 h-5 text-barber-gold" />
                         <h2 className="font-extrabold text-white text-lg truncate tracking-tight">{cita.cliente_nombre}</h2>
+                        <span className="ml-2 text-[10px] font-mono bg-barber-gold/20 text-barber-gold px-2 py-0.5 rounded-full border border-barber-gold/30 uppercase tracking-wider">
+                          Folio: ISA-{String(cita.id).padStart(4, '0')}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 text-zinc-400 text-sm ml-7">
                         <Phone className="w-3.5 h-3.5" />
@@ -234,7 +237,7 @@ export default function Dashboard() {
                          </div>
                          <div className="flex flex-col">
                            <span className="font-bold text-emerald-400 text-xs uppercase tracking-wider">Anticipo: ${cita.anticipo_pagado}</span>
-                           <span className="text-zinc-500 text-[10px] font-mono mt-0.5">Folio: {cita.comprobante_id}</span>
+                           <span className="text-zinc-500 text-[10px] font-mono mt-0.5">Folio Pago: {cita.comprobante_id}</span>
                          </div>
                        </div>
                      ) : null}

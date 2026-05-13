@@ -38,18 +38,12 @@ REGLAS MUY IMPORTANTES DE CITAS GRUPALES Y ANTICIPOS:
 - Si el barbero solicitado está ocupado en la hora que pidió el cliente, recomiéndale inmediatamente los horarios donde SÍ está libre u ofrécele a los otros barberos que estén libres a esa hora.
 - Para evitar spam, es OBLIGATORIO cobrar el 50% del total como anticipo. Dile el total a pagar y pídele que transfiera la mitad a la cuenta CLABE 4169161413445361.
 - IMPORTANTE: Al pedirle la transferencia, adviértele que tiene un MÁXIMO DE 10 MINUTOS para enviar la captura, o de lo contrario el proceso se cancelará y tendrá que reiniciar todo.
-- MUY IMPORTANTE (CLABE SEPARADA): Cuando le pidas el anticipo y le vayas a mandar la CLABE, DEBES separar la CLABE usando '|||' para que se envíe como un mensaje aislado y el cliente pueda copiarla fácilmente. Por ejemplo: "Por favor transfiere la mitad. Tienes 10 minutos. ||| 4169161413445361"
+- MUY IMPORTANTE (CLABE SEPARADA): Cuando le pidas el anticipo y le vayas a mandar la CLABE, DEBES separar la CLABE usando '|||' para que se envíe como un mensaje aislado y el cliente pueda copiarla fácilmente. Por ejemplo: "Por favor transfiere la mitad. Tienes 10 minutos. ||| 5206 9496 7306 2393"
 - NO agendes hasta que envíe la captura de pantalla de pago. Valídala con EXTREMA SEVERIDAD: La captura DEBE tener la fecha EXACTA DE HOY y una hora de hace escasos minutos. Si es de días anteriores o la hora no coincide con el momento actual, RECHÁZALA y dile que el pago debe realizarse en este momento exacto.
+- Puede que la captura de pantalla en el numero de cuenta se muestren los ultimos 4 digitos en ves de la cuenta completa, es normal, no te preocupes
 - Al usar la herramienta book_appointment, usa el campo duracion_total con la suma total de los minutos (ej. si son 2 cortes de 30 mins, pon 60).
 - AL FINAL DE CONFIRMAR CADA CITA, OBLIGATORIAMENTE debes decirle esta frase textual: "Te recordamos asistir puntual a tu cita, pues en otras horas se atenderán a otras personas."
-
-FLUJO DE CANCELACIONES Y CAMBIOS DE CITA:
-- Si un cliente quiere CANCELAR su cita, pídele su número de folio (formato ISA-XXXX). Usa la herramienta cancel_or_reschedule con action='cancelar'.
-- Si un cliente quiere MOVER su cita a otra fecha/hora, pídele su folio y pregúntale qué nueva fecha/hora prefiere. Luego busca disponibilidad con get_available_slots y si hay lugar, usa cancel_or_reschedule con action='reprogramar' pasando la nueva fecha y hora.
-- RECUERDA: No hay reembolso del anticipo en cancelaciones. Al confirmar una cancelación dile: "Tu cita ha sido cancelada. Recuerda que el anticipo no es reembolsable según nuestras políticas."
-- Al confirmar un cambio de fecha dile: "¡Listo! Tu cita ha sido reprogramada. Tu folio sigue siendo el mismo: ISA-XXXX."
-- AL CONFIRMAR UNA CITA NUEVA, siempre incluye el folio al final: "Tu folio de reserva es: ISA-[ID]. Guárdalo por si necesitas cancelar o mover tu cita."
-
+- Muy importante en el mensaje donde mandes la cuenta clabe le adviertas al cliente que no hay reembolsos en caso de cancelación o inasistencia, lo unico que se podria hacer es mover la cita para otra fecha.
 OTRAS REGLAS:
 - Horarios: Lunes a Sábado de 9:00 AM a 8:00 PM, y Domingos de 10:00 AM a 6:00 PM.
 - Barberos: YAHIR GAMBOA ROSAS, ISABEL ROSAS GARCIA, REGINA ROSAS GARCIA.
@@ -90,21 +84,6 @@ const tools = [
       },
       required: ["client_name", "date_string", "time_string", "barbero_id", "service_name", "comprobante_id", "anticipo_pagado", "duracion_total"]
     }
-  },
-  {
-    name: "cancel_or_reschedule",
-    description: "Cancela o reprograma una cita existente usando su folio de referencia (número de ID).",
-    parameters: {
-      type: "object",
-      properties: {
-        cita_id:     { type: "number", description: "ID numérico del folio (ej. si el folio es ISA-0012, el id es 12)" },
-        action:      { type: "string", description: "'cancelar' o 'reprogramar'" },
-        new_date:    { type: "string", description: "Nueva fecha YYYY-MM-DD (solo si action='reprogramar')" },
-        new_time:    { type: "string", description: "Nueva hora HH:MM:00 (solo si action='reprogramar')" },
-        new_barbero_id: { type: "number", description: "Nuevo barbero_id (solo si action='reprogramar')" }
-      },
-      required: ["cita_id", "action"]
-    }
   }
 ];
 
@@ -115,88 +94,50 @@ const toolFunctions = {
     if (slots.length === 0) return { mensaje: "No hay horarios disponibles para ese día." };
     return { disponibles: slots };
   },
-  get_prices: async () => {
-    const { rows } = await db.query("SELECT nombre, precio, duracion_min FROM servicios");
-    return { servicios: rows };
+  get_prices: () => {
+    return new Promise((resolve) => {
+      db.all("SELECT nombre, precio, duracion_min FROM servicios", (err, rows) => {
+        resolve({ servicios: rows });
+      });
+    });
   },
-  book_appointment: async ({ client_name, client_phone, date_string, time_string, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total }) => {
-    const fechaHora = `${date_string}T${time_string}`;
-    try {
-      // Insertar cita y obtener el ID con RETURNING
-      const { rows } = await db.query(
-        `INSERT INTO citas (cliente_nombre, cliente_telefono, fecha_hora, barbero_id, servicio, comprobante_id, anticipo_pagado, duracion_total)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [client_name, client_phone, fechaHora, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total]
-      );
-      const cita_id = rows[0].id;
+  book_appointment: ({ client_name, client_phone, date_string, time_string, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total }) => {
+    return new Promise((resolve) => {
+      const fechaHora = `${date_string}T${time_string}`;
+      const stmt = db.prepare(`INSERT INTO citas (cliente_nombre, cliente_telefono, fecha_hora, barbero_id, servicio, comprobante_id, anticipo_pagado, duracion_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+      stmt.run(client_name, client_phone, fechaHora, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total, function (err) {
+        if (err) {
+          resolve({ success: false, error: err.message });
+        } else {
+          const cita_id = this.lastID;
 
-      // Notificar al barbero por WhatsApp
-      const { rows: barberoRows } = await db.query("SELECT nombre, telefono FROM barberos WHERE id = $1", [barbero_id]);
-      const barbero = barberoRows[0];
-      if (barbero && barbero.telefono) {
-        try {
-          const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-          const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
-          const mensajeNotificacion = `💈 ¡Nueva Cita Agendada!\n\n📅 Fecha: ${date_string} a las ${time_string}\n🧑‍🦱 Cliente: ${client_name}\n✂️ Servicio: ${service_name}\n✅ Revisa el panel web para ver el folio de pago y más detalles.`;
-          if (META_ACCESS_TOKEN && PHONE_NUMBER_ID) {
-            await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
-              messaging_product: "whatsapp",
-              to: barbero.telefono,
-              type: "text",
-              text: { body: mensajeNotificacion }
-            }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
-            console.log(`Notificación enviada al barbero ${barbero.nombre}`);
-          }
-        } catch (e) {
-          console.error("Error al enviar notificación al barbero:", e.response?.data || e.message);
+          // Obtener el teléfono del barbero para notificarle
+          db.get("SELECT nombre, telefono FROM barberos WHERE id = ?", [barbero_id], async (errBarbero, row) => {
+            if (!errBarbero && row && row.telefono) {
+              try {
+                const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+                const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
+                const mensajeNotificacion = `💈 ¡Nueva Cita Agendada!\n\n📅 Fecha: ${date_string} a las ${time_string}\n🧑‍🦱 Cliente: ${client_name}\n✂️ Servicio: ${service_name}\n✅ Revisa el panel web para ver el folio de pago y más detalles.`;
+
+                if (META_ACCESS_TOKEN && PHONE_NUMBER_ID) {
+                  await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
+                    messaging_product: "whatsapp",
+                    to: row.telefono,
+                    type: "text",
+                    text: { body: mensajeNotificacion }
+                  }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
+                  console.log(`Notificación enviada al barbero ${row.nombre} al número ${row.telefono}`);
+                }
+              } catch (e) {
+                console.error("Error al enviar notificación al barbero:", e.response?.data || e.message);
+              }
+            }
+            resolve({ success: true, cita_id: cita_id, mensaje: "Cita agendada exitosamente." });
+          });
         }
-      }
-      const folio = `ISA-${String(cita_id).padStart(4, '0')}`;
-      return { success: true, cita_id, folio, mensaje: `Cita agendada exitosamente. El folio de reserva es: ${folio}.` };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  },
-  cancel_or_reschedule: async ({ cita_id, action, new_date, new_time, new_barbero_id }) => {
-    try {
-      // Verificar que la cita exista y esté pendiente
-      const { rows: citaRows } = await db.query(
-        "SELECT * FROM citas WHERE id = $1",
-        [cita_id]
-      );
-      if (citaRows.length === 0) {
-        return { success: false, error: "No encontré ninguna cita con ese folio. Verifica que el número sea correcto." };
-      }
-      const cita = citaRows[0];
-      if (cita.status === 'cancelada') {
-        return { success: false, error: "Esta cita ya fue cancelada anteriormente." };
-      }
-      if (cita.status === 'completada') {
-        return { success: false, error: "Esta cita ya fue completada y no puede modificarse." };
-      }
-
-      if (action === 'cancelar') {
-        await db.query("UPDATE citas SET status = 'cancelada' WHERE id = $1", [cita_id]);
-        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} cancelada correctamente.` };
-      }
-
-      if (action === 'reprogramar') {
-        if (!new_date || !new_time) {
-          return { success: false, error: "Necesito la nueva fecha y hora para reprogramar." };
-        }
-        const newFechaHora = `${new_date}T${new_time}`;
-        const barberoFinal = new_barbero_id || cita.barbero_id;
-        await db.query(
-          "UPDATE citas SET fecha_hora = $1, barbero_id = $2, status = 'pendiente' WHERE id = $3",
-          [newFechaHora, barberoFinal, cita_id]
-        );
-        return { success: true, mensaje: `Cita ISA-${String(cita_id).padStart(4,'0')} reprogramada para ${new_date} a las ${new_time}.` };
-      }
-
-      return { success: false, error: "Acción no reconocida. Usa 'cancelar' o 'reprogramar'." };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+      });
+      stmt.finalize();
+    });
   }
 };
 
