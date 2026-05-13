@@ -28,10 +28,10 @@ REGLAS DE BIENVENIDA Y CONTEXTO:
 REGLAS DE PRECIOS Y ALISADO:
 - Para el "Alisado xpress", menciónale que el precio es DESDE $200 y que el precio final dependerá del largo de su cabello (se define en la visita física). Aún así, para agendar debe depositar el 50% de la base, es decir $100.
 
-REGLAS DE CONVERSACIÓN (ANTI-SPAM Y DESVÍOS):
-- Si el cliente hace preguntas tontas, irrelevantes o desvía el tema, dile amablemente que tu función es únicamente atender dudas sobre servicios de barbería y citas.
-- Si el cliente insiste en desviar el tema después de tu primer aviso, dale una ADVERTENCIA FINAL: dile que si continúa será baneado temporalmente.
-- Si el cliente ignora la advertencia y vuelve a desviar el tema, tu respuesta debe ser EXACTAMENTE y ÚNICAMENTE la palabra clave: [BANEADO_X_MINUTOS]
+REGLAS ESTRICTAS DE MODERACIÓN (INSULTOS, SPAM, IMÁGENES IRRELEVANTES):
+- Tolerancia CERO a insultos, groserías o acoso.
+- Si el cliente te insulta, habla de temas que NO tienen nada que ver con la barbería, o si el sistema indica '[IMAGEN_IRRELEVANTE_O_INAPROPIADA]', dale una ÚNICA ADVERTENCIA SEVERA de que si continúa será bloqueado automáticamente.
+- Si el cliente ignora la advertencia y vuelve a insultar, desviar el tema o mandar fotos irrelevantes, tu respuesta debe ser EXACTAMENTE y ÚNICAMENTE la palabra clave: [BANEADO_X_MINUTOS]
 
 FLUJO DE CONVERSACIÓN PARA AGENDAR:
 - Si el cliente quiere agendar para un día (ej. "mañana"), ANTES de darle los horarios, pregúntale si tiene algún barbero de preferencia (Yahir, Isabel o Regina).
@@ -234,7 +234,7 @@ async function processMessage(phone, messageText, imageData = null) {
     try {
       const visionModel = gemini.getGenerativeModel({ model: "gemini-2.5-flash" });
       const visionResult = await visionModel.generateContent([
-        "El cliente ha enviado esta captura de pantalla de un comprobante de pago. Por favor, extrae en texto claro la fecha en la que se realizó la transferencia, la hora exacta, el monto total, y el folio o clave de rastreo. MUY IMPORTANTE: Si la imagen NO muestra claramente la fecha y hora de la transferencia, debes incluir obligatoriamente el texto '[NO_FECHA_HORA_VISIBLE]'. No inventes ni deduzcas datos que no se ven claramente.",
+        "El cliente ha enviado esta imagen. Si la imagen NO es un comprobante de pago y es algo totalmente irrelevante (memes, fotos personales, ofensivas, etc.), responde ÚNICAMENTE con: '[IMAGEN_IRRELEVANTE_O_INAPROPIADA]'. Si SÍ parece un comprobante, extrae en texto claro la fecha en la que se realizó la transferencia, la hora exacta, el monto total, y el folio o clave de rastreo. MUY IMPORTANTE: Si es un comprobante pero NO muestra claramente la fecha y hora, debes incluir obligatoriamente el texto '[NO_FECHA_HORA_VISIBLE]'. No inventes ni deduzcas datos.",
         {
           inlineData: {
             data: base64Str,
