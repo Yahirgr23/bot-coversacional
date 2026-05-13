@@ -71,6 +71,63 @@ app.get('/api/barberos', async (req, res) => {
 });
 
 // ==========================================
+// RUTAS GESTIÓN DE USUARIOS
+// ==========================================
+
+app.get('/api/usuarios', async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT u.id, u.usuario, u.password, u.rol, u.barbero_id, b.nombre as barbero_nombre
+      FROM usuarios u
+      LEFT JOIN barberos b ON u.barbero_id = b.id
+      ORDER BY u.id ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/usuarios', async (req, res) => {
+  const { usuario, password, rol, barbero_id } = req.body;
+  try {
+    const bId = barbero_id || null;
+    await db.query(
+      "INSERT INTO usuarios (usuario, password, rol, barbero_id) VALUES ($1, $2, $3, $4)",
+      [usuario, password, rol, bId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/usuarios/:id', async (req, res) => {
+  const { id } = req.params;
+  const { usuario, password, rol, barbero_id } = req.body;
+  try {
+    const bId = barbero_id || null;
+    await db.query(
+      "UPDATE usuarios SET usuario = $1, password = $2, rol = $3, barbero_id = $4 WHERE id = $5",
+      [usuario, password, rol, bId, id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/usuarios/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query("DELETE FROM usuarios WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
 // WHATSAPP WEBHOOK
 // ==========================================
 
