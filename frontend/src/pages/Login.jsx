@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Scissors, User, Lock, Loader2 } from 'lucide-react';
 
-const API_URL = `http://${window.location.hostname}:3000/api`;
+const API_URL = 'https://bot-coversacional-production.up.railway.app/api';
 
 export default function Login() {
   const navigate = useNavigate();

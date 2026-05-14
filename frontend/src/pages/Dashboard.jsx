@@ -10,7 +10,8 @@ import {
   DollarSign, Contact
 } from 'lucide-react';
 
-const API_URL = `http://${window.location.hostname}:3000/api`;
+const BASE_URL = 'https://bot-coversacional-production.up.railway.app';
+const API_URL = `${BASE_URL}/api`;
 
 const STATUS_CONFIG = {
   pendiente: { color: 'text-amber-400', bg: 'bg-amber-400/10', border: 'border-amber-400/20', icon: <Clock className="w-4 h-4" /> },
@@ -266,7 +267,7 @@ export default function Dashboard() {
                            <span className="text-zinc-500 text-[10px] font-mono mt-0.5">Folio: {cita.comprobante_id}</span>
                          </div>
                          {cita.comprobante_url && (
-                           <a href={`http://${window.location.hostname}:3000${cita.comprobante_url}`} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs bg-barber-gold/10 text-barber-gold hover:bg-barber-gold/20 px-3 py-1.5 rounded-lg border border-barber-gold/20 flex items-center gap-1.5 font-bold transition-colors">
+                           <a href={`${BASE_URL}${cita.comprobante_url}`} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs bg-barber-gold/10 text-barber-gold hover:bg-barber-gold/20 px-3 py-1.5 rounded-lg border border-barber-gold/20 flex items-center gap-1.5 font-bold transition-colors">
                              Ver Foto
                            </a>
                          )}
