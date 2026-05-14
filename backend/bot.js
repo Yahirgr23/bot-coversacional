@@ -274,11 +274,16 @@ async function processMessage(phone, messageText, imageData = null) {
   if (imageData) {
     const fs = require('fs');
     const path = require('path');
+    
+    const dataDir = process.env.DATA_DIR || __dirname;
+    const uploadDir = path.join(dataDir, 'uploads');
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
     const filename = `${Date.now()}_${phone}.jpg`;
     const tempFilePath = `/uploads/${filename}`;
     
     try {
-      fs.writeFileSync(path.join(__dirname, 'uploads', filename), imageData.buffer);
+      fs.writeFileSync(path.join(uploadDir, filename), imageData.buffer);
     } catch(err) {
       console.error("Error guardando la imagen localmente:", err);
     }

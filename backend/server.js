@@ -7,11 +7,22 @@ const { processMessage, setSock } = require('./bot');
 const { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const path = require('path');
+const fs = require('fs');
+
+const dataDir = process.env.DATA_DIR || __dirname;
+const uploadsDir = path.join(dataDir, 'uploads');
+const authDir = path.join(dataDir, 'auth_info_baileys');
+
+// Asegurar que la carpeta uploads exista
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(uploadsDir));
 
 // ==========================================
 // RUTAS DE CONFIGURACIÓN BANCARIA
@@ -90,7 +101,7 @@ app.patch('/api/citas/:id/status', async (req, res) => {
         const fs = require('fs');
         const path = require('path');
         const fileName = path.basename(rows[0].comprobante_url);
-        const filePath = path.join(__dirname, 'uploads', fileName);
+        const filePath = path.join(uploadsDir, fileName);
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
         }
@@ -265,7 +276,7 @@ app.delete('/api/servicios/:id', async (req, res) => {
 // ==========================================
 
 async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+  const { state, saveCreds } = await useMultiFileAuthState(authDir);
   
   const sock = makeWASocket({
     auth: state,
