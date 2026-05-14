@@ -292,8 +292,12 @@ async function connectToWhatsApp() {
     const { connection, lastDisconnect, qr } = update;
     
     if (qr) {
+      console.log('\n======================================================');
+      console.log('¡ATENCIÓN! Si el QR de arriba se ve borroso o estirado,');
+      console.log('DA CLIC EN EL SIGUIENTE ENLACE PARA VERLO BIEN:');
+      console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
+      console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
-      console.log('Escanea el QR superior con WhatsApp.');
     }
 
     if (connection === 'close') {
