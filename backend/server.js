@@ -280,7 +280,7 @@ async function connectToWhatsApp() {
   
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
+    printQRInTerminal: false,
     logger: pino({ level: 'silent' }), // Puedes cambiar a 'info' para ver más logs
     browser: ['Barberia ISA Bot', 'Chrome', '1.0.0']
   });
