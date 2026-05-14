@@ -3,11 +3,41 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const db = require('./database'); // Pool de pg
-const { processMessage } = require('./bot');
+const { processMessage, setSock } = require('./bot');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('baileys');
+const pino = require('pino');
+const qrcode = require('qrcode-terminal');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static('uploads'));
+
+// ==========================================
+// RUTAS DE CONFIGURACIÓN BANCARIA
+// ==========================================
+
+app.get('/api/config', async (req, res) => {
+  try {
+    const { rows } = await db.query("SELECT clave, valor FROM configuracion");
+    const config = {};
+    rows.forEach(r => config[r.clave] = r.valor);
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/config', async (req, res) => {
+  const { clabe, nombre_titular } = req.body;
+  try {
+    if (clabe) await db.query("UPDATE configuracion SET valor = $1 WHERE clave = 'clabe'", [clabe]);
+    if (nombre_titular) await db.query("UPDATE configuracion SET valor = $1 WHERE clave = 'nombre_titular'", [nombre_titular]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ==========================================
 // RUTAS API FRONTEND (ADMIN)
@@ -32,7 +62,7 @@ app.get('/api/citas', async (req, res) => {
   try {
     let query = `
       SELECT c.id, c.cliente_nombre, c.cliente_telefono, c.fecha_hora, c.servicio, c.status,
-             b.nombre as barbero, c.comprobante_id, c.anticipo_pagado
+             b.nombre as barbero, c.comprobante_id, c.anticipo_pagado, c.comprobante_url
       FROM citas c
       LEFT JOIN barberos b ON c.barbero_id = b.id
     `;
@@ -54,6 +84,20 @@ app.patch('/api/citas/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   try {
+    if (status === 'completada' || status === 'cancelada') {
+      const { rows } = await db.query("SELECT comprobante_url FROM citas WHERE id = $1", [id]);
+      if (rows.length > 0 && rows[0].comprobante_url) {
+        const fs = require('fs');
+        const path = require('path');
+        const fileName = path.basename(rows[0].comprobante_url);
+        const filePath = path.join(__dirname, 'uploads', fileName);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+        await db.query("UPDATE citas SET comprobante_url = NULL WHERE id = $1", [id]);
+      }
+    }
+
     await db.query("UPDATE citas SET status = $1 WHERE id = $2", [status, id]);
     res.json({ success: true });
   } catch (err) {
@@ -122,6 +166,15 @@ app.delete('/api/usuarios/:id', async (req, res) => {
   try {
     await db.query("DELETE FROM usuarios WHERE id = $1", [id]);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/barberos', async (req, res) => {
+  try {
+    const { rows } = await db.query("SELECT * FROM barberos ORDER BY id ASC");
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -208,89 +261,102 @@ app.delete('/api/servicios/:id', async (req, res) => {
 });
 
 // ==========================================
-// WHATSAPP WEBHOOK
+// WHATSAPP BAILEYS (Reemplazo de Meta Webhook)
 // ==========================================
 
-const VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || "ISA_TOKEN_2026";
-const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || "";
-const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID || "";
+async function connectToWhatsApp() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+  
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true,
+    logger: pino({ level: 'silent' }), // Puedes cambiar a 'info' para ver más logs
+    browser: ['Barberia ISA Bot', 'Chrome', '1.0.0']
+  });
 
-app.get('/webhook', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+  // Pasamos el socket al bot para que pueda enviar notificaciones a barberos
+  setSock(sock);
 
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
-  }
-});
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect, qr } = update;
+    
+    if (qr) {
+      qrcode.generate(qr, { small: true });
+      console.log('Escanea el QR superior con WhatsApp.');
+    }
 
-app.post('/webhook', async (req, res) => {
-  const body = req.body;
-  if (body.object) {
-    if (
-      body.entry &&
-      body.entry[0].changes &&
-      body.entry[0].changes[0] &&
-      body.entry[0].changes[0].value.messages &&
-      body.entry[0].changes[0].value.messages[0]
-    ) {
-      const msg = body.entry[0].changes[0].value.messages[0];
-      const phone = msg.from;
-      let text = "";
-      let imageData = null;
-
-      if (msg.type === "text") {
-        text = msg.text.body;
-      } else if (msg.type === "image") {
-        text = msg.image.caption || "Te envío el comprobante de transferencia.";
-        try {
-          const imageId = msg.image.id;
-          const urlRes = await axios.get(`https://graph.facebook.com/v19.0/${imageId}`, {
-            headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
-          });
-          const downloadUrl = urlRes.data.url;
-          const imageRes = await axios.get(downloadUrl, {
-            responseType: 'arraybuffer',
-            headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` }
-          });
-          imageData = {
-            buffer: Buffer.from(imageRes.data),
-            mimeType: msg.image.mime_type
-          };
-        } catch (err) {
-          console.error("Error descargando imagen de WhatsApp:", err);
-        }
+    if (connection === 'close') {
+      const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('Conexión cerrada. ¿Reconectar?', shouldReconnect);
+      if (shouldReconnect) {
+        connectToWhatsApp();
       }
+    } else if (connection === 'open') {
+      console.log('✅ Bot de WhatsApp conectado y listo.');
+    }
+  });
 
-      if (text || imageData) {
-        try {
-          const replyText = await processMessage(phone, text, imageData);
-          if (META_ACCESS_TOKEN && replyText) {
-            const messagesToSend = replyText.split('|||').map(m => m.trim()).filter(m => m.length > 0);
-            for (const msgContent of messagesToSend) {
-              await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
-                messaging_product: "whatsapp",
-                to: phone,
-                type: "text",
-                text: { body: msgContent }
-              }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
-            }
-          } else {
-            console.log("Respuesta generada (no enviada):", replyText);
+  sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return;
+    
+    const msg = messages[0];
+    if (!msg.message || msg.key.fromMe) return;
+
+    const remoteJid = msg.key.remoteJid;
+    // Solo respondemos a mensajes directos, ignorar grupos o status
+    if (remoteJid.includes('@g.us') || remoteJid === 'status@broadcast') return;
+
+    // Extraer número de teléfono (JID)
+    const phone = remoteJid.split('@')[0];
+    
+    let text = "";
+    let imageData = null;
+
+    const messageType = Object.keys(msg.message)[0];
+
+    if (messageType === 'conversation' || messageType === 'extendedTextMessage') {
+      text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+    } else if (messageType === 'imageMessage') {
+      text = msg.message.imageMessage?.caption || "Te envío el comprobante de transferencia.";
+      try {
+        const buffer = await downloadMediaMessage(
+          msg,
+          'buffer',
+          { },
+          { 
+            logger: pino({ level: 'silent' }),
+            reuploadRequest: sock.updateMediaMessage
           }
-        } catch (e) {
-          console.error(e);
-        }
+        );
+        imageData = {
+          buffer: buffer,
+          mimeType: msg.message.imageMessage.mimetype
+        };
+      } catch (err) {
+        console.error("Error descargando imagen de WhatsApp:", err);
       }
     }
-    res.sendStatus(200);
-  } else {
-    res.sendStatus(404);
-  }
-});
+
+    if (text || imageData) {
+      try {
+        const replyText = await processMessage(phone, text, imageData);
+        if (replyText) {
+          const messagesToSend = replyText.split('|||').map(m => m.trim()).filter(m => m.length > 0);
+          for (const msgContent of messagesToSend) {
+            await sock.sendMessage(remoteJid, { text: msgContent });
+          }
+        }
+      } catch (e) {
+        console.error("Error al procesar mensaje con el bot:", e);
+      }
+    }
+  });
+}
+
+// Iniciar WhatsApp
+connectToWhatsApp();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

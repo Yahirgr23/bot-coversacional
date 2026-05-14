@@ -3,3 +3,5 @@ node_modules/
 barberia.sqlite
 *.log
 .DS_Store
+auth_info_baileys/
+uploads/

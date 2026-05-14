@@ -53,9 +53,37 @@ async function initDB() {
         comprobante_id TEXT,
         anticipo_pagado REAL,
         duracion_total INTEGER DEFAULT 60,
-        reprogramaciones INTEGER DEFAULT 0
+        reprogramaciones INTEGER DEFAULT 0,
+        comprobante_url TEXT
       )
     `);
+
+    try {
+      // Intentar agregar la columna por si la tabla ya existía
+      await client.query(`ALTER TABLE citas ADD COLUMN comprobante_url TEXT;`);
+    } catch(e) {
+      // Ignorar si ya existe
+    }
+
+    // Tabla Configuracion
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS configuracion (
+        id SERIAL PRIMARY KEY,
+        clave TEXT UNIQUE NOT NULL,
+        valor TEXT NOT NULL
+      )
+    `);
+
+    // Seed Configuracion
+    const { rows: configRows } = await client.query('SELECT COUNT(*) as count FROM configuracion');
+    if (parseInt(configRows[0].count) === 0) {
+      await client.query(`
+        INSERT INTO configuracion (clave, valor) VALUES
+        ('clabe', '4169161413445361'),
+        ('nombre_titular', 'ISABEL ROSAS GARCIA')
+      `);
+      console.log('Configuración bancaria inicial creada.');
+    }
 
     // Seed Barberos
     const { rows: barberoRows } = await client.query('SELECT COUNT(*) as count FROM barberos');

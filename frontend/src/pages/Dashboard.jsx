@@ -26,7 +26,8 @@ export default function Dashboard() {
   
   // Admin Management State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [adminTab, setAdminTab] = useState('usuarios'); // usuarios, barberos, servicios
+  const [adminTab, setAdminTab] = useState('usuarios'); // usuarios, barberos, servicios, configuracion
+  const [config, setConfig] = useState({ clabe: '', nombre_titular: '' });
 
   const [usuarios, setUsuarios] = useState([]);
   const [userFormData, setUserFormData] = useState({ id: null, usuario: '', password: '', rol: 'barbero', barbero_id: '' });
@@ -78,6 +79,19 @@ export default function Dashboard() {
     fetchUsuarios();
     fetchBarberos();
     fetchServicios();
+    fetchConfig();
+  }
+
+  async function fetchConfig() {
+    try { const res = await axios.get(`${API_URL}/config`); setConfig(res.data); } catch (err) { console.error(err); }
+  }
+
+  async function handleSaveConfig(e) {
+    e.preventDefault();
+    try {
+      await axios.put(`${API_URL}/config`, config);
+      alert("Configuración guardada exitosamente");
+    } catch (err) { alert("Error al guardar configuración"); }
   }
 
   async function fetchUsuarios() {
@@ -247,10 +261,15 @@ export default function Dashboard() {
                      {cita.anticipo_pagado ? (
                        <div className="flex items-center gap-3 text-sm border-t border-white/5 pt-2.5 mt-1">
                          <div className="bg-emerald-500/10 p-1.5 rounded-md text-emerald-400"><CheckCircle2 className="w-4 h-4" /></div>
-                         <div className="flex flex-col">
+                         <div className="flex flex-col flex-1">
                            <span className="font-bold text-emerald-400 text-xs uppercase tracking-wider">Anticipo: ${cita.anticipo_pagado}</span>
                            <span className="text-zinc-500 text-[10px] font-mono mt-0.5">Folio: {cita.comprobante_id}</span>
                          </div>
+                         {cita.comprobante_url && (
+                           <a href={`http://${window.location.hostname}:3000${cita.comprobante_url}`} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs bg-barber-gold/10 text-barber-gold hover:bg-barber-gold/20 px-3 py-1.5 rounded-lg border border-barber-gold/20 flex items-center gap-1.5 font-bold transition-colors">
+                             Ver Foto
+                           </a>
+                         )}
                        </div>
                      ) : null}
                   </div>
@@ -284,10 +303,11 @@ export default function Dashboard() {
             </div>
 
             {/* TABS */}
-            <div className="flex border-b border-white/10 bg-black/20">
-              <button onClick={() => setAdminTab('usuarios')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'usuarios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><UserIcon size={16}/> Usuarios (Web)</button>
-              <button onClick={() => setAdminTab('barberos')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'barberos' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><Contact size={16}/> Barberos</button>
-              <button onClick={() => setAdminTab('servicios')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'servicios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><DollarSign size={16}/> Servicios</button>
+            <div className="flex border-b border-white/10 bg-black/20 overflow-x-auto custom-scrollbar">
+              <button onClick={() => setAdminTab('usuarios')} className={`flex-1 min-w-[120px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'usuarios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><UserIcon size={16}/> Usuarios</button>
+              <button onClick={() => setAdminTab('barberos')} className={`flex-1 min-w-[120px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'barberos' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><Contact size={16}/> Barberos</button>
+              <button onClick={() => setAdminTab('servicios')} className={`flex-1 min-w-[120px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'servicios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><DollarSign size={16}/> Servicios</button>
+              <button onClick={() => setAdminTab('configuracion')} className={`flex-1 min-w-[140px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'configuracion' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><Activity size={16}/> Configuración</button>
             </div>
 
             <div className="p-5 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
@@ -410,6 +430,27 @@ export default function Dashboard() {
                     ))}
                   </div>
                 </>
+              )}
+
+              {/* --- TAB CONFIGURACION --- */}
+              {adminTab === 'configuracion' && (
+                <form onSubmit={handleSaveConfig} className="bg-zinc-800/30 p-5 rounded-xl border border-white/5 space-y-4">
+                  <h3 className="text-sm font-bold text-barber-gold uppercase tracking-wider">Datos Bancarios para el Bot</h3>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">Nombre del Titular de la Cuenta</label>
+                      <input required placeholder="Ej. ISABEL ROSAS GARCIA" className="bg-black/40 border-none text-white rounded-lg p-3 w-full" value={config.nombre_titular || ''} onChange={e => setConfig({...config, nombre_titular: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1 block">CLABE Interbancaria</label>
+                      <input required placeholder="Ej. 4169161413445361" type="text" className="bg-black/40 border-none text-white rounded-lg p-3 w-full" value={config.clabe || ''} onChange={e => setConfig({...config, clabe: e.target.value})} />
+                    </div>
+                  </div>
+                  <p className="text-xs text-zinc-500 bg-black/20 p-3 rounded-lg border border-white/5">
+                    El asistente virtual pedirá a los clientes que depositen a esta cuenta y a este nombre automáticamente cuando quieran agendar una cita.
+                  </p>
+                  <button type="submit" className="w-full bg-barber-gold text-black font-bold py-2.5 rounded-lg hover:bg-yellow-500 transition-colors mt-2">Guardar Configuración</button>
+                </form>
               )}
 
             </div>

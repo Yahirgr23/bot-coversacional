@@ -3,7 +3,12 @@ const { OpenAI } = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const db = require('./database');
 const { getAvailableSlots } = require('./slots');
-const axios = require('axios');
+
+let baileysSock = null;
+
+function setSock(sock) {
+  baileysSock = sock;
+}
 
 const openai = new OpenAI({
   baseURL: 'https://api.deepseek.com',
@@ -17,6 +22,14 @@ async function getSystemPrompt() {
   
   const { rows: barberosRows } = await db.query("SELECT * FROM barberos");
   const { rows: serviciosRows } = await db.query("SELECT * FROM servicios");
+  const { rows: configRows } = await db.query("SELECT clave, valor FROM configuracion");
+  
+  let clabe = '4169161413445361';
+  let nombre_titular = 'Titular';
+  configRows.forEach(r => {
+    if (r.clave === 'clabe') clabe = r.valor;
+    if (r.clave === 'nombre_titular') nombre_titular = r.valor;
+  });
 
   const barberosText = barberosRows.map(b => `- ${b.nombre}`).join("\n");
   const serviciosText = serviciosRows.map(s => {
@@ -39,14 +52,15 @@ ${serviciosText}
 NUESTROS BARBEROS:
 ${barberosText}
 
-REGLAS DE BIENVENIDA Y CONTEXTO:
-- Siempre que un cliente te salude por primera vez, dale una cálida bienvenida mencionando a "Cortes y Estilos ISA" y usando emojis.
-- Nunca olvides el contexto de la plática actual. Mantén el hilo de la conversación.
+REGLAS DE COMUNICACIÓN (CONCISIÓN Y NATURALIDAD):
+- Sé conciso y directo, pero mantén una conversación fluida. Responde de manera normal y natural, sin extenderte demasiado ni dar explicaciones innecesarias que el cliente no haya pedido.
+- Sé amable y usa emojis, pero NO des información extra de más.
+- Siempre que un cliente te salude por primera vez, dale una cálida bienvenida a "Cortes y Estilos ISA".
 
 REGLAS ESTRICTAS DE MODERACIÓN (INSULTOS, SPAM, IMÁGENES IRRELEVANTES):
-- Tolerancia CERO a insultos, groserías o acoso.
-- Si el cliente te insulta, habla de temas que NO tienen nada que ver con la barbería, o si el sistema indica '[IMAGEN_IRRELEVANTE_O_INAPROPIADA]', dale una ÚNICA ADVERTENCIA SEVERA de que si continúa será bloqueado automáticamente.
-- Si el cliente ignora la advertencia y vuelve a insultar, desviar el tema o mandar fotos irrelevantes, tu respuesta debe ser EXACTAMENTE y ÚNICAMENTE la palabra clave: [BANEADO_X_MINUTOS]
+- Tolerancia CERO a insultos o imágenes irrelevantes (memes, fotos, animales, etc.).
+- Si el sistema indica '[IMAGEN_IRRELEVANTE_O_INAPROPIADA]', respóndele inmediatamente: "⚠️ Por favor, envía únicamente tu comprobante de pago. Si envías otra imagen no relacionada, serás bloqueado por 30 minutos." (Esta es su única advertencia).
+- Si el cliente insiste en mandar imágenes irrelevantes, desviar el tema o insultar DESPUÉS de la advertencia, tu respuesta debe ser EXACTAMENTE y ÚNICAMENTE la palabra clave: [BANEADO_X_MINUTOS]
 
 FLUJO DE CONVERSACIÓN PARA AGENDAR:
 - Si el cliente quiere agendar para un día (ej. "mañana"), ANTES de darle los horarios, pregúntale si tiene algún barbero de preferencia.
@@ -57,9 +71,9 @@ FLUJO DE CONVERSACIÓN PARA AGENDAR:
 REGLAS MUY IMPORTANTES DE CITAS GRUPALES Y ANTICIPOS:
 - Si el cliente pide servicio para MÚLTIPLES personas (ej. "dos niños"), suma automáticamente los precios y los tiempos basándote en la información de arriba.
 - Si el barbero solicitado está ocupado en la hora que pidió el cliente, recomiéndale inmediatamente los horarios donde SÍ está libre u ofrécele a los otros barberos que estén libres a esa hora.
-- Para evitar spam, es OBLIGATORIO cobrar el 50% del total como anticipo. Dile el total a pagar y pídele que transfiera la mitad a la cuenta CLABE 4169161413445361.
+- Para evitar spam, es OBLIGATORIO cobrar el 50% del total como anticipo. Dile el total a pagar y pídele que transfiera la mitad a nombre de *${nombre_titular}* a la cuenta CLABE *${clabe}*.
 - IMPORTANTE: Al pedirle la transferencia, adviértele que tiene un MÁXIMO DE 10 MINUTOS para enviar la captura, o de lo contrario el proceso se cancelará y tendrá que reiniciar todo.
-- MUY IMPORTANTE (CLABE SEPARADA): Cuando le pidas el anticipo y le vayas a mandar la CLABE, DEBES separar la CLABE usando '|||' para que se envíe como un mensaje aislado y el cliente pueda copiarla fácilmente. Por ejemplo: "Por favor transfiere la mitad. Tienes 10 minutos. ||| 5206 9496 7306 2393"
+- MUY IMPORTANTE (CLABE SEPARADA): Cuando le pidas el anticipo y le vayas a mandar la CLABE, DEBES separar la CLABE usando '|||' para que se envíe como un mensaje aislado y el cliente pueda copiarla fácilmente. Por ejemplo: "Por favor transfiere la mitad a nombre de ${nombre_titular}. Tienes 10 minutos. ||| ${clabe}"
 - NO agendes hasta que envíe la captura de pantalla de pago. Valídala de forma estricta basada SOLO en el texto extraído de la imagen: La captura DEBE tener la fecha de HOY. Si el texto extraído dice '[NO_FECHA_HORA_VISIBLE]' o si la fecha y hora no vienen incluidas explícitamente en el texto de la imagen, RECHAZA AUTOMÁTICAMENTE el comprobante. NUNCA le preguntes al cliente "¿es de hoy?" o le pidas que confirme verbalmente. Simplemente dile que la captura no es válida porque no se distingue la fecha/hora de la transacción y pídele otra. Si la hora tiene unos minutos de diferencia con la actual, sí acéptala, pero TIENE que ser visible.
 - Puede que la captura de pantalla en el numero de cuenta se muestren los ultimos 4 digitos en ves de la cuenta completa, es normal, no te preocupes
 - Al usar la herramienta book_appointment, usa el campo duracion_total con la suma total de los minutos (ej. si son 2 cortes de 30 mins, pon 60).
@@ -111,9 +125,10 @@ const tools = [
           service_name: { type: "string" },
           comprobante_id: { type: "string", description: "ID/Folio extraído de la captura de pantalla" },
           anticipo_pagado: { type: "number", description: "Monto pagado extraído de la captura" },
-          duracion_total: { type: "number", description: "Tiempo total calculado en minutos" }
+          duracion_total: { type: "number", description: "Tiempo total calculado en minutos" },
+          comprobante_url: { type: "string", description: "Ruta de la imagen guardada. ¡DEBES usar el valor que se te proporciona en el prompt de la imagen!" }
         },
-        required: ["client_name", "date_string", "time_string", "barbero_id", "service_name", "comprobante_id", "anticipo_pagado", "duracion_total"]
+        required: ["client_name", "date_string", "time_string", "barbero_id", "service_name", "comprobante_id", "anticipo_pagado", "duracion_total", "comprobante_url"]
       }
     }
   },
@@ -144,13 +159,13 @@ const toolFunctions = {
     if (slots.length === 0) return { mensaje: "No hay horarios disponibles para ese día." };
     return { disponibles: slots };
   },
-  book_appointment: async ({ client_name, client_phone, date_string, time_string, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total }) => {
+  book_appointment: async ({ client_name, client_phone, date_string, time_string, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total, comprobante_url }) => {
     const fechaHora = `${date_string}T${time_string}`;
     try {
       const { rows } = await db.query(
-        `INSERT INTO citas (cliente_nombre, cliente_telefono, fecha_hora, barbero_id, servicio, comprobante_id, anticipo_pagado, duracion_total)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [client_name, client_phone, fechaHora, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total]
+        `INSERT INTO citas (cliente_nombre, cliente_telefono, fecha_hora, barbero_id, servicio, comprobante_id, anticipo_pagado, duracion_total, comprobante_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+        [client_name, client_phone, fechaHora, barbero_id, service_name, comprobante_id, anticipo_pagado, duracion_total, comprobante_url || null]
       );
       const cita_id = rows[0].id;
 
@@ -158,20 +173,14 @@ const toolFunctions = {
       const barbero = barberoRows[0];
       if (barbero && barbero.telefono) {
         try {
-          const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-          const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
           const mensajeNotificacion = `💈 ¡Nueva Cita Agendada!\n\n📅 Fecha: ${date_string} a las ${time_string}\n🧑‍🦱 Cliente: ${client_name}\n✂️ Servicio: ${service_name}\n✅ Revisa el panel web para ver el folio de pago y más detalles.`;
-          if (META_ACCESS_TOKEN && PHONE_NUMBER_ID) {
-            await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
-              messaging_product: "whatsapp",
-              to: barbero.telefono,
-              type: "text",
-              text: { body: mensajeNotificacion }
-            }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
-            console.log(`Notificación enviada al barbero ${barbero.nombre}`);
+          if (baileysSock) {
+            const jid = barbero.telefono + '@s.whatsapp.net';
+            await baileysSock.sendMessage(jid, { text: mensajeNotificacion });
+            console.log(`Notificación enviada al barbero ${barbero.nombre} vía Baileys`);
           }
         } catch (e) {
-          console.error("Error al enviar notificación al barbero:", e.response?.data || e.message);
+          console.error("Error al enviar notificación al barbero:", e.message || e);
         }
       }
       const folio = `ISA-${String(cita_id).padStart(4, '0')}`;
@@ -223,21 +232,15 @@ const toolFunctions = {
         const barbero = barberoRows[0];
         if (barbero && barbero.telefono) {
           try {
-            const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-            const PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID;
             const folioStr = `ISA-${String(cita_id).padStart(4,'0')}`;
             const mensajeNotificacion = `🔄 ¡Cita Reprogramada!\n\nEl folio ${folioStr} ha sido reprogramado.\n📅 Nueva Fecha: ${new_date} a las ${new_time}\n🧑‍🦱 Cliente: ${cita.cliente_nombre}\n✂️ Servicio: ${servicioFinal}\n✅ Revisa el panel web para más detalles.`;
-            if (META_ACCESS_TOKEN && PHONE_NUMBER_ID) {
-              await axios.post(`https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`, {
-                messaging_product: "whatsapp",
-                to: barbero.telefono,
-                type: "text",
-                text: { body: mensajeNotificacion }
-              }, { headers: { Authorization: `Bearer ${META_ACCESS_TOKEN}` } });
-              console.log(`Notificación de reprogramación enviada al barbero ${barbero.nombre}`);
+            if (baileysSock) {
+              const jid = barbero.telefono + '@s.whatsapp.net';
+              await baileysSock.sendMessage(jid, { text: mensajeNotificacion });
+              console.log(`Notificación de reprogramación enviada al barbero ${barbero.nombre} vía Baileys`);
             }
           } catch (e) {
-            console.error("Error al enviar notificación de reprogramación al barbero:", e.response?.data || e.message);
+            console.error("Error al enviar notificación de reprogramación al barbero:", e.message || e);
           }
         }
 
@@ -269,11 +272,22 @@ async function processMessage(phone, messageText, imageData = null) {
 
   let userContent = messageText;
   if (imageData) {
+    const fs = require('fs');
+    const path = require('path');
+    const filename = `${Date.now()}_${phone}.jpg`;
+    const tempFilePath = `/uploads/${filename}`;
+    
+    try {
+      fs.writeFileSync(path.join(__dirname, 'uploads', filename), imageData.buffer);
+    } catch(err) {
+      console.error("Error guardando la imagen localmente:", err);
+    }
+
     const base64Str = imageData.buffer.toString("base64");
     try {
       const visionModel = gemini.getGenerativeModel({ model: "gemini-2.5-flash" });
       const visionResult = await visionModel.generateContent([
-        "El cliente ha enviado esta imagen. Si la imagen NO es un comprobante de pago y es algo totalmente irrelevante (memes, fotos personales, ofensivas, etc.), responde ÚNICAMENTE con: '[IMAGEN_IRRELEVANTE_O_INAPROPIADA]'. Si SÍ parece un comprobante, extrae en texto claro la fecha en la que se realizó la transferencia, la hora exacta, el monto total, y el folio o clave de rastreo. MUY IMPORTANTE: Si es un comprobante pero NO muestra claramente la fecha y hora, debes incluir obligatoriamente el texto '[NO_FECHA_HORA_VISIBLE]'. No inventes ni deduzcas datos.",
+        "El cliente ha enviado esta imagen. Actúa como un sistema estricto de prevención de fraudes. DEBES verificar visualmente que la imagen parezca legítimamente una captura de pantalla de una aplicación bancaria real (debe tener diseño de banco, logos, tipografía típica de bancos). Si la imagen es una captura de una app de Notas (Notes), texto escrito a mano, un montaje obvio, memes, o imágenes irrelevantes, responde ÚNICAMENTE con: '[IMAGEN_IRRELEVANTE_O_INAPROPIADA]'. Solo si ES un comprobante bancario real y creíble, extrae en texto claro la fecha en la que se realizó la transferencia, la hora exacta, el monto total, y el folio o clave de rastreo. MUY IMPORTANTE: Si es un comprobante pero NO muestra claramente la fecha y hora de la transacción, debes incluir obligatoriamente el texto '[NO_FECHA_HORA_VISIBLE]'. No inventes ni deduzcas datos.",
         {
           inlineData: {
             data: base64Str,
@@ -282,7 +296,7 @@ async function processMessage(phone, messageText, imageData = null) {
         }
       ]);
       const extractedText = visionResult.response.text();
-      userContent = `[IMAGEN ENVIADA POR EL CLIENTE]\nHe adjuntado una captura de pantalla. Los datos extraídos de la imagen son:\n${extractedText}`;
+      userContent = `[IMAGEN ENVIADA POR EL CLIENTE]\nHe adjuntado una captura de pantalla. Los datos extraídos de la imagen son:\n${extractedText}\n\n[REGLA VITAL]: Al usar la herramienta book_appointment, usa EXACTAMENTE este valor para el argumento comprobante_url: "${tempFilePath}"`;
     } catch(err) {
       console.error("Error en Gemini Vision:", err);
       userContent = "[IMAGEN ENVIADA POR EL CLIENTE]\nSe envió una captura pero hubo un error al leerla visualmente.";
@@ -365,4 +379,4 @@ async function processMessage(phone, messageText, imageData = null) {
   }
 }
 
-module.exports = { processMessage };
+module.exports = { processMessage, setSock };
