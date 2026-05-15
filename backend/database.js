@@ -74,6 +74,28 @@ async function initDB() {
       )
     `);
 
+    // Tabla Ausencias de Barbero
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ausencias_barbero (
+        id         SERIAL PRIMARY KEY,
+        barbero_id INTEGER NOT NULL REFERENCES barberos(id) ON DELETE CASCADE,
+        fecha      DATE NOT NULL,
+        motivo     TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(barbero_id, fecha)
+      )
+    `);
+
+    // Tabla Días Cerrados del Negocio
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS dias_cerrados (
+        id         SERIAL PRIMARY KEY,
+        fecha      DATE NOT NULL UNIQUE,
+        motivo     TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
     // Seed Configuracion
     const { rows: configRows } = await client.query('SELECT COUNT(*) as count FROM configuracion');
     if (parseInt(configRows[0].count) === 0) {
