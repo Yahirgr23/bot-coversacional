@@ -155,7 +155,33 @@ const tools = [
 
 const toolFunctions = {
   get_available_slots: async ({ date_string, preferred_barbero }) => {
-    const slots = await getAvailableSlots(date_string, preferred_barbero);
+    const result = await getAvailableSlots(date_string, preferred_barbero);
+
+    // Caso 1: El negocio está cerrado ese día
+    if (result && result.negocio_cerrado) {
+      return {
+        negocio_cerrado: true,
+        mensaje: `El negocio estará cerrado ese día. Motivo: ${result.motivo}. Por favor elige otra fecha.`
+      };
+    }
+
+    // Caso 2: El barbero solicitado tiene ausencia, pero hay alternativas
+    if (result && result.barbero_ausente) {
+      if (result.alternativas.length === 0) {
+        return {
+          barbero_ausente: true,
+          mensaje: `${result.barbero_ausente.barbero_nombre} no estará disponible ese día (${result.barbero_ausente.motivo}). Además, no hay otros barberos con disponibilidad. Por favor elige otra fecha.`
+        };
+      }
+      return {
+        barbero_ausente: true,
+        mensaje: `${result.barbero_ausente.barbero_nombre} no estará ese día (${result.barbero_ausente.motivo}). Pero los siguientes horarios con otros barberos están disponibles como alternativa:`,
+        alternativas: result.alternativas
+      };
+    }
+
+    // Caso 3: Respuesta normal - array de slots
+    const slots = result;
     if (slots.length === 0) return { mensaje: "No hay horarios disponibles para ese día." };
     return { disponibles: slots };
   },

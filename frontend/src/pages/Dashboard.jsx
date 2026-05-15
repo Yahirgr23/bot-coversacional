@@ -7,7 +7,7 @@ import {
   LogOut, Calendar, Clock, Scissors, 
   CheckCircle2, XCircle, Phone, User as UserIcon, 
   Activity, CalendarCheck, Inbox, Users, Edit2, Trash2, Plus, 
-  DollarSign, Contact
+  DollarSign, Contact, CalendarX2, CalendarOff, AlertTriangle
 } from 'lucide-react';
 
 const BASE_URL = 'https://bot-coversacional-production.up.railway.app';
@@ -27,7 +27,7 @@ export default function Dashboard() {
   
   // Admin Management State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [adminTab, setAdminTab] = useState('usuarios'); // usuarios, barberos, servicios, configuracion
+  const [adminTab, setAdminTab] = useState('usuarios'); // usuarios, barberos, servicios, configuracion, calendario
   const [config, setConfig] = useState({ clabe: '', nombre_titular: '' });
 
   const [usuarios, setUsuarios] = useState([]);
@@ -39,12 +39,24 @@ export default function Dashboard() {
   const [servicios, setServicios] = useState([]);
   const [servicioFormData, setServicioFormData] = useState({ id: null, nombre: '', precio: '', duracion_min: '', tipo_precio: 'fijo' });
 
+  // Ausencias y Días Cerrados
+  const [ausencias, setAusencias] = useState([]);
+  const [ausenciaForm, setAusenciaForm] = useState({ fecha: '', motivo: '' });
+  const [diasCerrados, setDiasCerrados] = useState([]);
+  const [diaCerradoForm, setDiaCerradoForm] = useState({ fecha: '', motivo: '' });
+  const [showAusenciasPanel, setShowAusenciasPanel] = useState(false);
+
   const userString = localStorage.getItem('isa_user');
   const user = userString ? JSON.parse(userString) : null;
 
   useEffect(() => {
     if (!user) navigate('/login');
-    else fetchCitas();
+    else {
+      fetchCitas();
+      if (user.rol === 'barbero' && user.barbero_id) {
+        fetchAusencias(user.barbero_id);
+      }
+    }
   }, [navigate]);
 
   function handleLogout() {
@@ -81,6 +93,8 @@ export default function Dashboard() {
     fetchBarberos();
     fetchServicios();
     fetchConfig();
+    fetchDiasCerrados();
+    fetchAusencias();
   }
 
   async function fetchConfig() {
@@ -103,6 +117,50 @@ export default function Dashboard() {
   }
   async function fetchServicios() {
     try { const res = await axios.get(`${API_URL}/servicios`); setServicios(res.data); } catch (err) { console.error(err); }
+  }
+
+  // Ausencias
+  async function fetchAusencias(bId) {
+    try {
+      const params = bId ? { barbero_id: bId } : {};
+      const res = await axios.get(`${API_URL}/ausencias`, { params });
+      setAusencias(res.data);
+    } catch (err) { console.error(err); }
+  }
+  async function handleSaveAusencia(e) {
+    e.preventDefault();
+    const barberoId = user.rol === 'barbero' ? user.barbero_id : null;
+    if (!barberoId) return alert('Este usuario no está vinculado a un barbero');
+    try {
+      await axios.post(`${API_URL}/ausencias`, { barbero_id: barberoId, fecha: ausenciaForm.fecha, motivo: ausenciaForm.motivo });
+      setAusenciaForm({ fecha: '', motivo: '' });
+      fetchAusencias(barberoId);
+    } catch (err) { alert('Error al guardar ausencia'); }
+  }
+  async function handleDeleteAusencia(id) {
+    if (!window.confirm('¿Eliminar esta ausencia?')) return;
+    try {
+      await axios.delete(`${API_URL}/ausencias/${id}`);
+      const bId = user.rol === 'barbero' ? user.barbero_id : null;
+      fetchAusencias(bId);
+    } catch (err) { alert('Error al eliminar'); }
+  }
+
+  // Días Cerrados
+  async function fetchDiasCerrados() {
+    try { const res = await axios.get(`${API_URL}/dias-cerrados`); setDiasCerrados(res.data); } catch (err) { console.error(err); }
+  }
+  async function handleSaveDiaCerrado(e) {
+    e.preventDefault();
+    try {
+      await axios.post(`${API_URL}/dias-cerrados`, { fecha: diaCerradoForm.fecha, motivo: diaCerradoForm.motivo });
+      setDiaCerradoForm({ fecha: '', motivo: '' });
+      fetchDiasCerrados();
+    } catch (err) { alert('Error al guardar día cerrado'); }
+  }
+  async function handleDeleteDiaCerrado(id) {
+    if (!window.confirm('¿Eliminar este día cerrado?')) return;
+    try { await axios.delete(`${API_URL}/dias-cerrados/${id}`); fetchDiasCerrados(); } catch (err) { alert('Error al eliminar'); }
   }
 
   // CRUD Usuarios
@@ -183,11 +241,75 @@ export default function Dashboard() {
               <Users className="w-5 h-5" />
             </button>
           )}
+          {user?.rol === 'barbero' && (
+            <button onClick={() => setShowAusenciasPanel(v => !v)} className={`p-2.5 rounded-xl transition-all border shadow-sm ${showAusenciasPanel ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-zinc-800/50 text-zinc-400 hover:text-orange-400 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`} title="Mis Ausencias">
+              <CalendarOff className="w-5 h-5" />
+            </button>
+          )}
           <button onClick={handleLogout} className="p-2.5 bg-zinc-800/50 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all border border-transparent hover:border-red-500/20 shadow-sm" title="Cerrar Sesión">
             <LogOut className="w-5 h-5" />
           </button>
         </div>
       </header>
+
+      {/* PANEL AUSENCIAS (solo barbero) */}
+      {user?.rol === 'barbero' && showAusenciasPanel && (
+        <div className="max-w-3xl mx-auto px-4 pt-4 relative z-10">
+          <div className="bg-orange-500/5 border border-orange-500/20 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="bg-orange-500/10 p-2 rounded-lg">
+                <CalendarOff className="w-5 h-5 text-orange-400" />
+              </div>
+              <div>
+                <h2 className="font-black text-white text-base">Mis Días de Ausencia</h2>
+                <p className="text-xs text-zinc-500">El bot avisará a los clientes que no estarás disponible en estas fechas</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveAusencia} className="flex flex-col sm:flex-row gap-3">
+              <input
+                required
+                type="date"
+                className="bg-black/40 border border-white/5 text-white rounded-lg px-3 py-2.5 text-sm flex-1 focus:outline-none focus:border-orange-500/40"
+                value={ausenciaForm.fecha}
+                min={new Date().toISOString().split('T')[0]}
+                onChange={e => setAusenciaForm({ ...ausenciaForm, fecha: e.target.value })}
+              />
+              <input
+                type="text"
+                placeholder="Motivo (opcional)"
+                className="bg-black/40 border border-white/5 text-white rounded-lg px-3 py-2.5 text-sm flex-1 focus:outline-none focus:border-orange-500/40"
+                value={ausenciaForm.motivo}
+                onChange={e => setAusenciaForm({ ...ausenciaForm, motivo: e.target.value })}
+              />
+              <button type="submit" className="bg-orange-500 hover:bg-orange-400 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap">
+                <Plus className="w-4 h-4" /> Registrar
+              </button>
+            </form>
+
+            {ausencias.length === 0 ? (
+              <p className="text-center text-zinc-600 text-sm py-3">No tienes ausencias registradas</p>
+            ) : (
+              <div className="space-y-2">
+                {ausencias.map(a => (
+                  <div key={a.id} className="flex items-center justify-between bg-black/30 rounded-xl px-4 py-3 border border-white/5">
+                    <div className="flex items-center gap-3">
+                      <CalendarX2 className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-bold text-white">{new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                        {a.motivo && <p className="text-xs text-zinc-500 mt-0.5">{a.motivo}</p>}
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteAusencia(a.id)} className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors flex-shrink-0">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* MAIN DASHBOARD */}
       <main className="max-w-3xl mx-auto p-4 space-y-6 mt-4 relative z-10">
@@ -305,10 +427,11 @@ export default function Dashboard() {
 
             {/* TABS */}
             <div className="flex border-b border-white/10 bg-black/20 overflow-x-auto custom-scrollbar">
-              <button onClick={() => setAdminTab('usuarios')} className={`flex-1 min-w-[120px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'usuarios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><UserIcon size={16}/> Usuarios</button>
-              <button onClick={() => setAdminTab('barberos')} className={`flex-1 min-w-[120px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'barberos' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><Contact size={16}/> Barberos</button>
-              <button onClick={() => setAdminTab('servicios')} className={`flex-1 min-w-[120px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'servicios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><DollarSign size={16}/> Servicios</button>
-              <button onClick={() => setAdminTab('configuracion')} className={`flex-1 min-w-[140px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'configuracion' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><Activity size={16}/> Configuración</button>
+              <button onClick={() => setAdminTab('usuarios')} className={`flex-1 min-w-[110px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'usuarios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><UserIcon size={16}/> Usuarios</button>
+              <button onClick={() => setAdminTab('barberos')} className={`flex-1 min-w-[110px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'barberos' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><Contact size={16}/> Barberos</button>
+              <button onClick={() => setAdminTab('servicios')} className={`flex-1 min-w-[110px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'servicios' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><DollarSign size={16}/> Servicios</button>
+              <button onClick={() => setAdminTab('configuracion')} className={`flex-1 min-w-[130px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'configuracion' ? 'text-barber-gold border-b-2 border-barber-gold bg-white/5' : 'text-zinc-400 hover:text-white'}`}><Activity size={16}/> Config</button>
+              <button onClick={() => { setAdminTab('calendario'); fetchDiasCerrados(); fetchAusencias(); }} className={`flex-1 min-w-[120px] py-3 text-sm font-bold flex items-center justify-center gap-2 ${adminTab === 'calendario' ? 'text-orange-400 border-b-2 border-orange-400 bg-white/5' : 'text-zinc-400 hover:text-white'}`}><CalendarOff size={16}/> Calendario</button>
             </div>
 
             <div className="p-5 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
@@ -452,6 +575,105 @@ export default function Dashboard() {
                   </p>
                   <button type="submit" className="w-full bg-barber-gold text-black font-bold py-2.5 rounded-lg hover:bg-yellow-500 transition-colors mt-2">Guardar Configuración</button>
                 </form>
+              )}
+
+              {/* --- TAB CALENDARIO --- */}
+              {adminTab === 'calendario' && (
+                <div className="space-y-6">
+
+                  {/* DÍAS CERRADOS */}
+                  <div className="bg-zinc-800/30 p-5 rounded-xl border border-white/5 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-red-500/10 p-2 rounded-lg">
+                        <CalendarX2 className="w-5 h-5 text-red-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-wider">Días Cerrados del Negocio</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">El bot bloqueará citas para estos días completamente</p>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleSaveDiaCerrado} className="flex flex-col sm:flex-row gap-3">
+                      <input
+                        required
+                        type="date"
+                        className="bg-black/40 border border-white/5 text-white rounded-lg px-3 py-2.5 text-sm flex-1 focus:outline-none focus:border-red-500/40"
+                        value={diaCerradoForm.fecha}
+                        onChange={e => setDiaCerradoForm({ ...diaCerradoForm, fecha: e.target.value })}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Motivo (ej: día festivo)"
+                        className="bg-black/40 border border-white/5 text-white rounded-lg px-3 py-2.5 text-sm flex-1 focus:outline-none focus:border-red-500/40"
+                        value={diaCerradoForm.motivo}
+                        onChange={e => setDiaCerradoForm({ ...diaCerradoForm, motivo: e.target.value })}
+                      />
+                      <button type="submit" className="bg-red-500 hover:bg-red-400 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap">
+                        <Plus className="w-4 h-4" /> Agregar
+                      </button>
+                    </form>
+
+                    {diasCerrados.length === 0 ? (
+                      <p className="text-center text-zinc-600 text-sm py-3">No hay días cerrados registrados</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {diasCerrados.map(d => (
+                          <div key={d.id} className="flex items-center justify-between bg-red-500/5 rounded-xl px-4 py-3 border border-red-500/15">
+                            <div className="flex items-center gap-3">
+                              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-sm font-bold text-white">{new Date(d.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                {d.motivo && <p className="text-xs text-zinc-500 mt-0.5">{d.motivo}</p>}
+                              </div>
+                            </div>
+                            <button onClick={() => handleDeleteDiaCerrado(d.id)} className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors flex-shrink-0">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* AUSENCIAS DE BARBEROS (vista admin) */}
+                  <div className="bg-zinc-800/30 p-5 rounded-xl border border-white/5 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-orange-500/10 p-2 rounded-lg">
+                        <CalendarOff className="w-5 h-5 text-orange-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-wider">Ausencias de Barberos</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">Registradas por cada barbero desde su panel. El bot ofrecerá alternativas.</p>
+                      </div>
+                    </div>
+
+                    {ausencias.length === 0 ? (
+                      <p className="text-center text-zinc-600 text-sm py-3">Ningún barbero ha registrado ausencias</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {ausencias.map(a => (
+                          <div key={a.id} className="flex items-center justify-between bg-orange-500/5 rounded-xl px-4 py-3 border border-orange-500/15">
+                            <div className="flex items-center gap-3">
+                              <CalendarX2 className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                              <div>
+                                <p className="text-sm font-bold text-white">
+                                  {a.barbero_nombre}
+                                  <span className="ml-2 text-[10px] bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full font-mono uppercase">ausente</span>
+                                </p>
+                                <p className="text-xs text-zinc-400 mt-0.5">{new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                {a.motivo && <p className="text-xs text-zinc-600">{a.motivo}</p>}
+                              </div>
+                            </div>
+                            <button onClick={() => { handleDeleteAusencia(a.id); fetchAusencias(); }} className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors flex-shrink-0">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
               )}
 
             </div>

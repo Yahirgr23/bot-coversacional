@@ -272,6 +272,91 @@ app.delete('/api/servicios/:id', async (req, res) => {
 });
 
 // ==========================================
+// RUTAS AUSENCIAS DE BARBEROS
+// ==========================================
+
+app.get('/api/ausencias', async (req, res) => {
+  const { barbero_id } = req.query;
+  try {
+    let query = `
+      SELECT a.id, a.barbero_id, a.fecha, a.motivo, a.created_at,
+             b.nombre as barbero_nombre
+      FROM ausencias_barbero a
+      JOIN barberos b ON a.barbero_id = b.id
+    `;
+    const params = [];
+    if (barbero_id) {
+      query += ` WHERE a.barbero_id = $1`;
+      params.push(barbero_id);
+    }
+    query += ` ORDER BY a.fecha ASC`;
+    const { rows } = await db.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ausencias', async (req, res) => {
+  const { barbero_id, fecha, motivo } = req.body;
+  try {
+    await db.query(
+      "INSERT INTO ausencias_barbero (barbero_id, fecha, motivo) VALUES ($1, $2, $3) ON CONFLICT (barbero_id, fecha) DO UPDATE SET motivo = $3",
+      [barbero_id, fecha, motivo || null]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/ausencias/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query("DELETE FROM ausencias_barbero WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// RUTAS DÍAS CERRADOS DEL NEGOCIO
+// ==========================================
+
+app.get('/api/dias-cerrados', async (req, res) => {
+  try {
+    const { rows } = await db.query("SELECT * FROM dias_cerrados ORDER BY fecha ASC");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/dias-cerrados', async (req, res) => {
+  const { fecha, motivo } = req.body;
+  try {
+    await db.query(
+      "INSERT INTO dias_cerrados (fecha, motivo) VALUES ($1, $2) ON CONFLICT (fecha) DO UPDATE SET motivo = $2",
+      [fecha, motivo || null]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/dias-cerrados/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query("DELETE FROM dias_cerrados WHERE id = $1", [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
 // WHATSAPP BAILEYS (Reemplazo de Meta Webhook)
 // ==========================================
 
