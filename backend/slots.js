@@ -26,7 +26,7 @@ async function getCitasPorFecha(fechaYMD) {
 async function getAvailableSlots(dateString, preferredBarbero = null) {
   // ── 1. Verificar si el negocio está cerrado ese día ──────────────────────
   const { rows: cerradoRows } = await db.query(
-    "SELECT motivo FROM dias_cerrados WHERE fecha = $1",
+    "SELECT motivo FROM dias_cerrados WHERE fecha = $1::DATE",
     [dateString]
   );
   if (cerradoRows.length > 0) {
@@ -46,7 +46,7 @@ async function getAvailableSlots(dateString, preferredBarbero = null) {
     );
     if (barberoObj) {
       const { rows: ausenciaRows } = await db.query(
-        "SELECT motivo FROM ausencias_barbero WHERE barbero_id = $1 AND fecha = $2",
+        "SELECT motivo FROM ausencias_barbero WHERE barbero_id = $1 AND fecha = $2::DATE",
         [barberoObj.id, dateString]
       );
       if (ausenciaRows.length > 0) {
@@ -62,7 +62,7 @@ async function getAvailableSlots(dateString, preferredBarbero = null) {
   } else {
     // Si no hay preferencia, igual filtramos barberos con ausencia ese día
     const { rows: ausenciasDelDia } = await db.query(
-      "SELECT barbero_id FROM ausencias_barbero WHERE fecha = $1",
+      "SELECT barbero_id FROM ausencias_barbero WHERE fecha = $1::DATE",
       [dateString]
     );
     const idsBarberosAusentes = ausenciasDelDia.map(r => r.barbero_id);

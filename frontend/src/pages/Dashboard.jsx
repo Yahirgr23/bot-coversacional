@@ -296,7 +296,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-3">
                       <CalendarX2 className="w-4 h-4 text-orange-400 flex-shrink-0" />
                       <div>
-                        <p className="text-sm font-bold text-white">{new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                        <p className="text-sm font-bold text-white">{new Date(String(a.fecha).substring(0, 10) + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                         {a.motivo && <p className="text-xs text-zinc-500 mt-0.5">{a.motivo}</p>}
                       </div>
                     </div>
@@ -622,7 +622,7 @@ export default function Dashboard() {
                             <div className="flex items-center gap-3">
                               <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
                               <div>
-                                <p className="text-sm font-bold text-white">{new Date(d.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                <p className="text-sm font-bold text-white">{new Date(String(d.fecha).substring(0, 10) + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                                 {d.motivo && <p className="text-xs text-zinc-500 mt-0.5">{d.motivo}</p>}
                               </div>
                             </div>
@@ -660,7 +660,7 @@ export default function Dashboard() {
                                   {a.barbero_nombre}
                                   <span className="ml-2 text-[10px] bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full font-mono uppercase">ausente</span>
                                 </p>
-                                <p className="text-xs text-zinc-400 mt-0.5">{new Date(a.fecha + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                <p className="text-xs text-zinc-400 mt-0.5">{new Date(String(a.fecha).substring(0, 10) + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                                 {a.motivo && <p className="text-xs text-zinc-600">{a.motivo}</p>}
                               </div>
                             </div>
